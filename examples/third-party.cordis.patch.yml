@@ -1,0 +1,22 @@
+# Merge into $DSH_HOME/profiles/acp/cordis.patch.yml (default ~/.dsh).
+# Replace the endpoint and model ID with values from your gateway.
+# A config override replaces the entire entry config: preserve any other
+# providers/settings already present in an llm-pi-ai override.
+- id: llm-pi-ai
+  config:
+    providers:
+      deepseek-gateway:
+        displayName: DeepSeek gateway
+        api: openai-completions
+        baseURL: https://gateway.example.com/v1
+        apiKeyEnv: DSH_GATEWAY_API_KEY
+        models:
+          - id: your-deepseek-model-id
+            name: DeepSeek via gateway
+
+# Override the shipped ACP starting route as well, so new ACP sessions do not
+# start on deepseek-official. Existing sessions can retain their saved selection.
+- id: acp
+  config:
+    provider: deepseek-gateway
+    model: your-deepseek-model-id
