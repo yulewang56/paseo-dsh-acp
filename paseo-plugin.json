@@ -1,7 +1,7 @@
 {
   "id": "dsh-acp",
   "name": "DeepSeek Harness ACP",
-  "description": "Official DSH ACP provider with a theme-aware monochrome icon.",
+  "description": "Official DSH ACP with session resume, local history replay and a monochrome icon.",
   "requirements": {
     "paseo": ">=0.15.3"
   }

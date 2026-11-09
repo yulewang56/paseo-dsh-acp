@@ -1,13 +1,14 @@
 # DeepSeek Harness ACP for Paseo
 
 把**官方 DSH ACP profile**接入 Paseo，加上随深浅主题变色的黑白 DeepSeek 图标。
-provider ID 为 `dsh`。本插件只注册 Paseo 自带的 `runAcpProvider`，没有自定义
-agent 循环、协议转换或模型代理，也不依赖 DSH Desktop。
+provider ID 为 `dsh`。本插件复用 Paseo 自带的 `runAcpProvider`，补充官方 DSH
+ACP 的会话恢复与本地历史回放兼容层，没有自定义 agent 循环或模型代理，
+也不依赖 DSH Desktop。
 
 ```text
 你的应用 / Paseo
   → Paseo daemon
-  → 标准 ACP adapter
+  → 标准 ACP adapter + DSH 会话恢复兼容层
   → dsh --profile acp
   → DSH 配置的模型 API
 ```
@@ -19,12 +20,14 @@ agent 循环、协议转换或模型代理，也不依赖 DSH Desktop。
 要求：
 
 - Paseo >= 0.15.3，且已启用插件。
+- daemon 的 Node >= 22.15，支持 Zstandard 解压；本机 Desktop 内置运行时已满足。
 - 官方 DSH CLI；已验证 DSH 0.2.2-alpha.2。
 - 满足所选 DSH 版本要求的 Node。验证版本要求 Node >= 24.9.0。
 - Git 私有仓库读取权限。当前仓库为私有，先配置 GitHub/Git 身份验证。
 
 插件是受信任的非沙箱代码，会以 daemon 用户权限运行。安装前请检查源码。
 本插件不会自动安装或更新 DSH，不会上传本机配置或凭据。
+历史回放会只读访问 daemon host 上的 DSH 会话文件，不读取模型密钥。
 
 ### 1. 准备 DSH
 
@@ -181,6 +184,33 @@ API 扩展不一定相同。
 
 ## 能力边界
 
+### 会话恢复与历史刷新
+
+DSH 0.2.2-alpha.2 的官方 ACP 提供 `session/resume`，但没有
+`session/load` 和历史回放。Paseo 0.15.3 的标准 ACP adapter 仅凭
+`loadSession` 声明 `session.persistence`；直接注册会导致新会话能启动，
+历史刷新或重新打开会话却报 `Provider does not support session.persistence`。
+
+插件 1.1.0 同时处理这两个问题：
+
+- 将 adapter 的 `session/load` 转成官方 `session/resume`，恢复**同一个 DSH
+  session ID**；失败时直接报错，不偷偷新建空会话。
+- 恢复成功后，从 DSH 本地 v4 日志回放用户消息、回复、思考、工具及结果、
+  失败记录，再通知 Paseo 会话就绪。会读取全部 Zstandard 追加帧，不只读取首帧。
+  `history: skip` 不回放。日志缺失、损坏或不支持的格式会明确报错，不返回空历史。
+- 如果未来 DSH 原生支持 `session/load`，直接使用原生实现。
+
+默认读取 `$DSH_HOME/sessions`，未设置 `DSH_HOME` 时读取 `~/.dsh/sessions`。
+若在 DSH 配置了自定义 JSONL 存储 root，可通过该 provider 的环境变量
+`DSH_ACP_SESSION_ROOT` 指向同一个目录。支持 `session.v4.jsonl.zstd` 和
+`session.v4.jsonl`，不改写或删除这些文件。其他存储后端尚不支持历史回放。
+历史非文本附件显示类型占位，原附件仍由 DSH 保存，不声称已恢复图片预览。
+
+升级只需在 DSH 任务空闲时更新/重载插件，然后重新打开原会话，不需重启 daemon，
+不需删除原会话，也不需更换模型配置。
+
+### 官方 ACP 的其他限制
+
 遵循官方 ACP profile 的能力，不补齐桌面功能。当前已验证版本没有
 Standard/PTC/Minimal/Creator preset 选择、原生 Plan 审批卡片等桌面交互。
 支持的模型、权限请求和会话能力由 DSH/Paseo 握手决定。
@@ -190,6 +220,7 @@ Standard/PTC/Minimal/Creator preset 选择、原生 Plan 审批卡片等桌面�
 ```sh
 npm ci
 npm run typecheck
+npm test
 paseo plugin reload dsh-acp
 ```
 
