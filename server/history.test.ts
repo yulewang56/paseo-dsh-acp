@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { zstdCompressSync } from "node:zlib";
-import { decodeHistory, projectHistory, readDshHistory } from "./history.ts";
+import { decodeHistory, projectHistory, projectUsage, readDshHistory } from "./history.ts";
 
 const sessionId = "11111111-2222-4333-8444-555555555555";
 const header = { type: "session", version: 4, id: sessionId, cwd: "/project" };
@@ -257,3 +257,19 @@ test("turn end variants surface blocked warnings, aborts and missing error detai
   }]), sessionId), /Missing text history text/);
 });
 
+
+test("resume replays the last context-window usage", () => {
+  const rows = [
+    { type: "request/context", seq: 0, data: { provider: "p", model: "m", contextWindow: 1000 } },
+    { type: "assistant/message", seq: 1, data: {
+      message: { id: "a", content: [{ type: "text", text: "hi" }] },
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 250 },
+    } },
+    { type: "turn/end", seq: 2, data: { reason: { kind: "completed" } } },
+  ];
+  assert.deepEqual(projectUsage(jsonl([header, ...rows]), sessionId), {
+    jsonrpc: "2.0", method: "session/update",
+    params: { sessionId, update: { sessionUpdate: "usage_update", used: 250, size: 1000 } },
+  });
+  assert.equal(projectUsage(jsonl([header]), sessionId), undefined);
+});

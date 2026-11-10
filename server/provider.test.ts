@@ -295,6 +295,17 @@ test("history replay reaches the timeline through the provider connection", { ti
       type: "user/message", seq: 0,
       data: { id: "replayed", source: { kind: "user" }, content: [{ type: "text", text: "replayed history" }] },
     }),
+    JSON.stringify({
+      type: "request/context", seq: 1,
+      data: { provider: "fixture", model: "fixture", contextWindow: 1000 },
+    }),
+    JSON.stringify({
+      type: "assistant/message", seq: 2,
+      data: {
+        message: { id: "replayed-assistant", content: [{ type: "text", text: "replayed answer" }] },
+        usage: { inputTokens: 100, outputTokens: 50, totalTokens: 250 },
+      },
+    }),
     "",
   ].join("\n");
   await writeFile(join(directory, "session.v4.jsonl"), text);
@@ -309,6 +320,10 @@ test("history replay reaches the timeline through the provider connection", { ti
       },
     });
     assert.equal(ready.type, "session.ready");
+    const usage = h.events.find((event) => event.type === "session.usage");
+    assert.ok(usage?.type === "session.usage");
+    assert.equal(usage.usage.contextWindowUsedTokens, 250);
+    assert.equal(usage.usage.contextWindowMaxTokens, 1000);
     const replay = h.events.findIndex((event) => event.type === "timeline.item" &&
       event.item.type === "user_message" && event.item.text === "replayed history");
     const opened = h.events.findIndex((event) => event.type === "session.opened");

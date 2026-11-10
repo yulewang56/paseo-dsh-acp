@@ -185,6 +185,37 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
   return messages;
 }
 
+/**
+ * The last context-window snapshot DSH persisted: `request/context` carries the
+ * window size and each committed assistant message carries the used tokens.
+ * Paseo keeps `lastUsage` in memory, so a resume must replay this or the context
+ * meter stays empty until the next turn.
+ */
+export function projectUsage(text: string, sessionId: string): AcpStreamMessage | undefined {
+  if (!text.endsWith("\n")) return undefined;
+  const lines = text.trimEnd().split("\n");
+  let size: number | undefined;
+  let used: number | undefined;
+  for (let index = 1; index < lines.length; index++) {
+    const event = eventSchema.parse(JSON.parse(lines[index]));
+    if (event.type === "request/context") {
+      const context = z.object({ contextWindow: z.number().positive() }).passthrough()
+        .safeParse(event.data);
+      if (context.success) size = context.data.contextWindow;
+    } else if (event.type === "assistant/message") {
+      const message = z.object({
+        usage: z.object({ totalTokens: z.number().nonnegative() }).passthrough().optional(),
+      }).passthrough().safeParse(event.data);
+      if (message.success && message.data.usage) used = message.data.usage.totalTokens;
+    }
+  }
+  if (size === undefined || used === undefined) return undefined;
+  return {
+    jsonrpc: "2.0", method: "session/update",
+    params: { sessionId, update: { sessionUpdate: "usage_update", used, size } },
+  };
+}
+
 export async function readDshHistory(
   identity: { sessionId: string; cwd: string },
   env: NodeJS.ProcessEnv,
@@ -219,5 +250,7 @@ export async function readDshHistory(
   if (await realpath(header.cwd) !== await realpath(cwd)) {
     throw new Error("DSH history working directory does not match");
   }
-  return projectHistory(text, sessionId);
+  const messages = projectHistory(text, sessionId);
+  const usage = projectUsage(text, sessionId);
+  return usage ? [...messages, usage] : messages;
 }

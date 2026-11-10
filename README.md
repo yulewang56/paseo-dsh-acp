@@ -149,7 +149,8 @@ daemon/provider 传同名环境变量。
 DSH 0.2.2-alpha.2 只有 `session/resume`，没有 `session/load` 和历史回放；Paseo
 0.15.3 仅凭 `loadSession` 声明 `session.persistence`。插件把 `session/load` 转成
 `session/resume` 恢复同一 session ID，并从本地 v4 日志回放历史（读取全部 Zstd 帧）；
-失败时明确报错，不新建空会话。
+失败时明确报错，不新建空会话。回放同时恢复最后一次上下文用量，重启后 context
+meter 不会空白等待下一轮。
 
 日志位于 `$DSH_HOME/sessions`（默认 `~/.dsh/sessions`），支持
 `session.v4.jsonl.zstd` 和 `.jsonl`，只读。自定义存储 root 用 provider 环境变量

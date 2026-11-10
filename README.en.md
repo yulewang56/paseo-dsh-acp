@@ -159,7 +159,8 @@ DSH 0.2.2-alpha.2 only has `session/resume`, not `session/load` or history repla
 Paseo 0.15.3 exposes `session.persistence` only for agents declaring `loadSession`. The
 plugin translates `session/load` into `session/resume`, restores the same session ID,
 and replays history from local v4 logs (all Zstd frames), failing explicitly instead of
-creating an empty session.
+creating an empty session. The replay also restores the last context-window usage, so
+the context meter is populated after a restart instead of waiting for the next turn.
 
 Logs live under `$DSH_HOME/sessions` (default `~/.dsh/sessions`); `session.v4.jsonl.zstd`
 and `.jsonl` are supported and read-only. Point the provider environment variable
