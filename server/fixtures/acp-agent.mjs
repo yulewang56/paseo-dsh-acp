@@ -92,6 +92,18 @@ lines.on("line", (line) => {
         update({ sessionUpdate: "tool_call", toolCallId: "empty-error",
           title: "Failed fixture tool", status: "failed", rawInput: {}, rawOutput: null });
       }
+      if (text === "tool-result") {
+        update({ sessionUpdate: "tool_call", toolCallId: "tool-result",
+          title: "Fixture result tool", status: "in_progress", rawInput: {} });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "tool-result", status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "fixture tool result" } }] });
+      }
+      if (text === "tool-failed-result") {
+        update({ sessionUpdate: "tool_call", toolCallId: "tool-failed-result",
+          title: "Fixture failed result tool", status: "in_progress", rawInput: {} });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "tool-failed-result", status: "failed",
+          content: [{ type: "content", content: { type: "text", text: "fixture tool failure detail" } }] });
+      }
       if (text === "error") {
         send({ id, error: { code: -32603, message: "turn failed: fixture API failure" } });
         prompt = undefined;

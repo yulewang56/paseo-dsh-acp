@@ -20,6 +20,23 @@ const listSchema = z.object({
 type RequestId = string | number | null;
 type HistoryReader = typeof readDshHistory;
 
+function toolOutputText(update: Record<string, unknown>): string | undefined {
+  if (!Array.isArray(update.content)) return undefined;
+  const parts: string[] = [];
+  for (const entry of update.content) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (entry.type !== "content") continue;
+    const block = entry.content;
+    if (!block || typeof block !== "object" || Array.isArray(block)) continue;
+    if (block.type === "text") {
+      if (typeof block.text === "string" && block.text.length > 0) parts.push(block.text);
+    } else if (typeof block.type === "string") {
+      parts.push(`[${block.type} attachment retained in DSH session]`);
+    }
+  }
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
 export class DshAcpCompatibility {
   private readonly initializations = new Set<RequestId>();
   private readonly loads = new Map<RequestId, z.infer<typeof loadSchema>>();
@@ -70,14 +87,22 @@ export class DshAcpCompatibility {
 
   async fromAgent(message: AcpStreamMessage): Promise<AcpStreamMessage[]> {
     if ("method" in message && message.method === "session/update") {
-      const { update } = z.object({
+      const params = z.object({
         update: z.object({ sessionUpdate: z.string() }).passthrough(),
-      }).parse(message.params);
+      }).passthrough().parse(message.params);
+      const { update } = params;
       if (update.sessionUpdate === "tool_call") {
         this.toolCalls.set(z.string().parse(update.toolCallId), update);
-      } else if (update.sessionUpdate === "tool_call_update" &&
-                 ["completed", "failed"].includes(String(update.status))) {
-        this.toolCalls.delete(z.string().parse(update.toolCallId));
+      } else if (update.sessionUpdate === "tool_call_update") {
+        if (["completed", "failed"].includes(String(update.status))) {
+          this.toolCalls.delete(z.string().parse(update.toolCallId));
+        }
+        // DSH reports results through standard ACP display content. Paseo's
+        // adapter only surfaces rawOutput, so mirror the history projection.
+        const output = toolOutputText(update);
+        if (output !== undefined && (update.rawOutput === undefined || update.rawOutput === null)) {
+          message = { ...message, params: { ...params, update: { ...update, rawOutput: output } } };
+        }
       }
     }
     if ("method" in message && message.method === "session/request_permission") {

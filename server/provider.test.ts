@@ -164,6 +164,38 @@ test("model and thought selections preserve opaque IDs and report errors without
   } finally { await h.connection.close(); }
 });
 
+test("DSH tool result content stays visible in the live timeline", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    const resultTool = h.wait((event) => event.type === "timeline.item" &&
+      event.item.type === "tool_call" && event.item.callId === "tool-result" && event.item.status === "completed");
+    const resultTurn = h.wait((event) => event.type === "session.turn" &&
+      event.turnId === "acp:tool-result" && event.state === "completed");
+    await h.prompt("tool-result", "tool-result");
+    const completed = await resultTool;
+    await resultTurn;
+    assert.ok(completed.type === "timeline.item" && completed.item.type === "tool_call" &&
+      completed.item.detail.type === "unknown");
+    assert.deepEqual(completed.item.detail, {
+      type: "unknown", input: {}, output: "fixture tool result",
+    });
+    const failedTool = h.wait((event) => event.type === "timeline.item" &&
+      event.item.type === "tool_call" && event.item.callId === "tool-failed-result" && event.item.status === "failed");
+    const failedTurn = h.wait((event) => event.type === "session.turn" &&
+      event.turnId === "acp:tool-failed-result" && event.state === "completed");
+    await h.prompt("tool-failed-result", "tool-failed-result");
+    const failed = await failedTool;
+    await failedTurn;
+    assert.ok(failed.type === "timeline.item" && failed.item.type === "tool_call" &&
+      failed.item.detail.type === "unknown");
+    assert.deepEqual(failed.item.detail, {
+      type: "unknown", input: {}, output: "fixture tool failure detail",
+    });
+    assert.equal(failed.item.error, "fixture tool failure detail");
+  } finally { await h.connection.close(); }
+});
+
 test("output limits warn before completion, API errors fail, and process death is not successful completion", async () => {
   const h = await harness();
   try {
