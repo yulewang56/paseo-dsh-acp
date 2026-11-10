@@ -1,75 +1,43 @@
 # DeepSeek Harness ACP for Paseo
 
-把**官方 DSH ACP profile**接入 Paseo，加上随深浅主题变色的黑白 DeepSeek 图标。
-provider ID 为 `deepseek`。本插件复用 Paseo 自带的 `runAcpProvider`，补充官方 DSH
-ACP 的会话恢复与本地历史回放兼容层，没有自定义 agent 循环或模型代理，
-也不依赖 DSH Desktop。
+[English](README.en.md) | 中文
+
+把**官方 DSH ACP profile**接入 Paseo，附带跟随深浅主题的黑白 DeepSeek 图标。
+provider ID 为 `deepseek`。插件复用 Paseo 的 `runAcpProvider`，只补充会话恢复与
+本地历史回放；没有自定义 agent 循环，不代理模型请求，不依赖 DSH Desktop。
 
 ```text
-你的应用 / Paseo
-  → Paseo daemon
-  → 标准 ACP adapter + DSH 会话恢复兼容层
-  → dsh --profile acp
-  → DSH 配置的模型 API
+Paseo → 标准 ACP adapter + DSH 恢复兼容层 → dsh --profile acp → DSH 配置的模型 API
 ```
 
-## 1.3.0 破坏性变更：provider ID
+## 要求
 
-provider ID 从 `dsh` 改为 `deepseek`，让按厂商名匹配的第三方界面（如
-Better-Paseo）正确显示 DeepSeek 图标。插件 ID 仍是 `dsh-acp`，CLI 命令仍是
-`dsh --profile acp`；没有保留旧 provider 别名。
+以下操作在 **Paseo daemon 所在机器**执行。
 
-升级前请先结束所有 DSH 任务，并备份 daemon host 的 `~/.paseo/config.json`。
-将 `agents.providers.dsh` 的完整对象（含 command/env 等覆盖项）复制到
-`agents.providers.deepseek`，再移除旧 `dsh` 项；如已有 `deepseek` 配置，
-请先核对合并，不要直接覆盖。然后更新插件源，在确认可中断旧会话后执行：
+- Paseo >= 0.15.3，已启用插件。
+- daemon Node >= 22.15（Zstandard 解压）。
+- 官方 DSH CLI，已验证 0.2.2-alpha.2（该版本要求 Node >= 24.9.0）。
+- 私有仓库读取权限，先配置 GitHub/Git 凭据。
 
-```sh
-paseo reload --json
-paseo plugin reload dsh-acp
-paseo provider diagnostic deepseek --json
-```
+插件是受信任的非沙箱代码，以 daemon 用户权限运行，安装前请检查源码。插件不安装
+DSH、不上传配置或凭据，历史回放只读访问 DSH 会话文件。
 
-插件重载会终止旧 provider 的运行进程，即使保留相同 provider ID 也不能视为无中断。
-旧 agent 的 `provider` 和 persistence 仍为 `dsh`，升级后**无法恢复**；
-本插件不会改写旧 agent 记录，也不会删除 DSH 原会话文件。升级后请新建
-`deepseek` agent。需要恢复旧 agent 时，须先回退插件源和配置备份，再重载。
-
-若未来 Paseo 内置 `deepseek` provider，本插件可能因同名冲突而注册失败，
-届时需要改用 `deepseek-harness` 等更具体的 ID，并再次安排迁移。
-
-## 在其他 host 安装
-
-以下操作均在 **Paseo daemon 所在机器**执行，不是只在连接它的手机或电脑上执行。
-
-要求：
-
-- Paseo >= 0.15.3，且已启用插件。
-- daemon 的 Node >= 22.15，支持 Zstandard 解压；本机 Desktop 内置运行时已满足。
-- 官方 DSH CLI；已验证 DSH 0.2.2-alpha.2。
-- 满足所选 DSH 版本要求的 Node。验证版本要求 Node >= 24.9.0。
-- Git 私有仓库读取权限。当前仓库为私有，先配置 GitHub/Git 身份验证。
-
-插件是受信任的非沙箱代码，会以 daemon 用户权限运行。安装前请检查源码。
-本插件不会自动安装或更新 DSH，不会上传本机配置或凭据。
-历史回放会只读访问 daemon host 上的 DSH 会话文件，不读取模型密钥。
+## 安装
 
 ### 1. 准备 DSH
 
 ```sh
-node --version
 npm install -g @deepseek-ai/dsh
 dsh --version
 dsh --profile acp --help
 ```
 
-npm 默认源或企业镜像的 `latest` 可能不同；需要复现时可使用
-`npm install -g @deepseek-ai/dsh@0.2.2-alpha.2`。也可以使用官方 Desktop
-注册的 `dsh` 命令，但要确认它支持 ACP。
+需要复现时固定版本：`@deepseek-ai/dsh@0.2.2-alpha.2`。也可使用官方 Desktop 注册的
+`dsh`，但需确认支持 ACP。
 
 ### 2. 安装插件
 
-先确认目标 daemon 的全局插件开关已开启（Settings → Plugins）。
+先开启 daemon 的全局插件开关（Settings → Plugins）。
 
 ```sh
 gh auth setup-git
@@ -78,20 +46,20 @@ paseo plugin ls
 paseo provider diagnostic deepseek --json
 ```
 
-如果 Git 安装不可用，也可使用目录源：
+Git 安装不可用时使用目录源：
 
 ```sh
 gh repo clone yulewang56/paseo-dsh-acp
 paseo plugin install /absolute/path/to/paseo-dsh-acp
 ```
 
-安装不需要执行 `npm install`，Paseo 提供运行时 SDK；没有 build/install 脚本。
-要求插件为 `running`，provider 为 `Ready`。这些诊断不验证模型 API 调用成功。
+不需要 `npm install`：插件没有 build/install 脚本。插件应为 `running`，provider 应为
+`Ready`；诊断不验证模型调用。
 
-### 3. 必要时覆盖 CLI 路径
+### 3. CLI 路径（可选）
 
-默认启动 `dsh --profile acp`。如果 daemon 找不到 `dsh`，将下面的对象**合并**
-进该 host 的 `~/.paseo/config.json`，不要覆盖其他配置：
+默认执行 `dsh --profile acp`。daemon 找不到 `dsh` 时，把下面对象**合并**进
+`~/.paseo/config.json`：
 
 ```json
 {
@@ -106,57 +74,58 @@ paseo plugin install /absolute/path/to/paseo-dsh-acp
 }
 ```
 
-Windows 可填实际 `dsh.cmd` 路径；插件使用 Paseo 标准 ACP 启动器。
-只在 macOS 上实测过，Windows/Linux 应执行同样的诊断。
-如果默认 Node 太旧，也可将 `command` 改为：
-
-```json
-["/absolute/path/to/compatible/node", "/absolute/path/to/dsh/lib/bin.js", "--profile", "acp"]
-```
-
-若从旧的 config-only ACP 注册迁移，将原 provider 下的 command/env 等覆盖项
-迁至 `deepseek`，但移除 `"extends": "acp"`；现在由本插件注册 provider。
-旧 agent 不会因此自动迁移，限制见顶部的 1.3.0 迁移说明。
+Windows 用实际 `dsh.cmd` 路径；目前仅在 macOS 实测，其他平台同样跑诊断。默认 Node
+太旧时，把 `command` 改为
+`["/path/to/node", "/path/to/dsh/lib/bin.js", "--profile", "acp"]`。
 
 ```sh
 paseo reload --json
 paseo provider diagnostic deepseek --json
 ```
 
-不需要重启 daemon。插件更新/重载可能影响它所管理的 DSH 会话，请先让任务结束。
+无需重启 daemon，但重载会终止旧 provider 进程，请先结束任务。
+
+## 从旧 `dsh` provider 升级（1.3.0）
+
+provider ID 已从 `dsh` 改为 `deepseek`；插件 ID 仍是 `dsh-acp`，CLI 仍是
+`dsh --profile acp`，没有旧别名。
+
+备份 `~/.paseo/config.json`，把 `agents.providers.dsh` 的完整对象（含 command/env）
+复制到 `agents.providers.deepseek` 后删除旧项；已有 `deepseek` 配置时先核对合并。
+然后：
+
+```sh
+paseo reload --json
+paseo plugin reload dsh-acp
+paseo provider diagnostic deepseek --json
+```
+
+旧 agent 的 provider/persistence 仍为 `dsh`，**无法恢复**；插件不改写旧记录，也不
+删除 DSH 会话文件。升级后请新建 agent；需要恢复旧 agent 时，先回退插件源和配置备份。
+
+若 Paseo 未来内置 `deepseek` provider，本插件会因同名冲突注册失败，届时改用
+`deepseek-harness` 等更具体的 ID 并再次迁移。
 
 ## 更新
 
-Git 安装：
-
 ```sh
-paseo plugin update dsh-acp
+paseo plugin update dsh-acp                                    # Git 安装
+git -C <repo> pull --ff-only && paseo plugin reload dsh-acp    # 目录安装
 ```
 
-目录安装：
+DSH 单独更新：`npm install -g @deepseek-ai/dsh`，之后重跑诊断。两者都不会修改第三方
+模型配置。
 
-```sh
-git -C /absolute/path/to/paseo-dsh-acp pull --ff-only
-paseo plugin reload dsh-acp
-```
+## 第三方 DeepSeek 模型
 
-DSH 与插件分别更新。更新 npm 安装的 DSH 使用
-`npm install -g @deepseek-ai/dsh`，之后再次运行 provider diagnostic。
-此操作不会修改第三方模型配置。
+支持。模型请求由 DSH 发出；网关必须提供 DSH 需要的 API、工具调用和流式响应，网页
+聊天服务不够。模型 ID、思考参数、上下文、图片能力和费用由第三方决定。
 
-## 使用第三方 DeepSeek 模型
-
-**支持。模型请求由 DSH 发出，不由 Paseo 插件发出。** 网关必须提供 DSH
-支持的 API、工具调用与流式响应；仅有网页聊天服务不够。真实模型 ID、思考参数、
-上下文上限、图片能力及费用由第三方决定。
-
-在 daemon host 上：
-
-1. 运行一次 `dsh --profile acp --help`，让官方 CLI 初始化 ACP profile。
-2. 将 [示例](examples/third-party.cordis.patch.yml) 的配置合并到
-   `~/.dsh/profiles/acp/cordis.patch.yml`，替换 endpoint 和 model ID。
-   如果设置了 `DSH_HOME`，路径改为 `$DSH_HOME/profiles/acp/cordis.patch.yml`。
-3. 把凭据存到 `~/.dsh/.credentials.yaml` 的 `refs` 中：
+1. 运行一次 `dsh --profile acp --help` 初始化 ACP profile。
+2. 把[示例](examples/third-party.cordis.patch.yml)合并到
+   `~/.dsh/profiles/acp/cordis.patch.yml`（`DSH_HOME` 下同理），替换 endpoint 和
+   model ID。
+3. 凭据写入 `~/.dsh/.credentials.yaml` 的 `refs`：
 
 ```yaml
 version: 1
@@ -164,129 +133,75 @@ refs:
   DSH_GATEWAY_API_KEY: REPLACE_WITH_YOUR_SECRET
 ```
 
-**保留已有 refs/其他凭据，不要直接覆盖文件，不要提交真实密钥。**
-建议 `chmod 600 ~/.dsh/.credentials.yaml`。也可向 daemon/该 provider 显式提供同名
-环境变量；仅在交互终端 `export` 不保证桌面版 daemon 能继承。
+保留已有 refs，不要覆盖整个文件或提交密钥，建议 `chmod 600`。也可显式向
+daemon/provider 传同名环境变量。
 
-ACP 与 `web` 是不同 profile：只在 `dsh web` 的模型设置里保存路由，不代表
-ACP 也配置好了。示例同时覆盖 `acp` 行的默认 provider/model；只添加网关路由
-不会自动取代官方 ACP 的起始模型。
+注意：
 
-DSH 的 Cordis `config` 覆盖是**整项替换，不是深合并**。修改已有
-`llm-pi-ai` 配置时必须保留其他路由及设置；不要重复添加同 id 的覆盖行。
-ACP profile 默认关闭 HMR，修改后应在空闲时重新打开/重新加载 DSH agent 会话。
-旧会话可能保留历史模型选择，在 Paseo 模型选择器中显式选择网关模型。
+- ACP 与 `web` 是不同 profile，`dsh web` 里保存的路由不会自动生效。
+- Cordis `config` 覆盖是**整项替换**，保留 `llm-pi-ai` 的其他路由，不要重复同 id。
+- 旧会话可能保留旧模型选择，请在 Paseo 中显式选择。
+- 完成后运行 `paseo provider diagnostic deepseek --json`，再发一条最小请求验证鉴权、
+  工具调用和网络；`Ready` 不代表推理成功。
 
-完成后：
+## 能力与限制
 
-```sh
-paseo provider diagnostic deepseek --json
-```
+### 会话恢复与历史
 
-再在 Paseo 中选择 `deepseek` 和网关模型，发送一个最小请求验证实际鉴权、工具调用
-及网络连通性。诊断 Ready/模型列表可见不代表推理请求已经验证。
+DSH 0.2.2-alpha.2 只有 `session/resume`，没有 `session/load` 和历史回放；Paseo
+0.15.3 仅凭 `loadSession` 声明 `session.persistence`。插件把 `session/load` 转成
+`session/resume` 恢复同一 session ID，并从本地 v4 日志回放历史（读取全部 Zstd 帧）；
+失败时明确报错，不新建空会话。
 
-### 可选的网关兼容参数
+日志位于 `$DSH_HOME/sessions`（默认 `~/.dsh/sessions`），支持
+`session.v4.jsonl.zstd` 和 `.jsonl`，只读。自定义存储 root 用 provider 环境变量
+`DSH_ACP_SESSION_ROOT` 指向。非文本附件只显示类型占位，`history: skip` 不回放。
 
-只在网关明确需要时，放到示例路由的 `compat` 中：
+### 交互语义
 
-```yaml
-compat:
-  supportsDeveloperRole: false
-```
-
-如果网关支持 DeepSeek 格式的 `thinking` 开关，可在对应 model 中配置：
-
-```yaml
-compat:
-  thinkingFormat: deepseek
-reasoningEfforts:
-  off:
-  high: high
-```
-
-不要照抄不受支持的思考档位。第三方推理输出格式、图片支持和 DeepSeek 官方
-API 扩展不一定相同。
-
-## 能力边界
-
-### 会话恢复与历史刷新
-
-DSH 0.2.2-alpha.2 的官方 ACP 提供 `session/resume`，但没有
-`session/load` 和历史回放。Paseo 0.15.3 的标准 ACP adapter 仅凭
-`loadSession` 声明 `session.persistence`；直接注册会导致新会话能启动，
-历史刷新或重新打开会话却报 `Provider does not support session.persistence`。
-
-插件 1.1.0 同时处理这两个问题：
-
-- 将 adapter 的 `session/load` 转成官方 `session/resume`，恢复**同一个 DSH
-  session ID**；失败时直接报错，不偷偷新建空会话。
-- 恢复成功后，从 DSH 本地 v4 日志回放用户消息、回复、思考、工具及结果、
-  失败记录，再通知 Paseo 会话就绪。会读取全部 Zstandard 追加帧，不只读取首帧。
-  `history: skip` 不回放。日志缺失、损坏或不支持的格式会明确报错，不返回空历史。
-- 如果未来 DSH 原生支持 `session/load`，直接使用原生实现。
-
-默认读取 `$DSH_HOME/sessions`，未设置 `DSH_HOME` 时读取 `~/.dsh/sessions`。
-若在 DSH 配置了自定义 JSONL 存储 root，可通过该 provider 的环境变量
-`DSH_ACP_SESSION_ROOT` 指向同一个目录。支持 `session.v4.jsonl.zstd` 和
-`session.v4.jsonl`，不改写或删除这些文件。其他存储后端尚不支持历史回放。
-历史非文本附件显示类型占位，原附件仍由 DSH 保存，不声称已恢复图片预览。
-
-同一 provider ID 下的历史兼容修复，只需在 DSH 任务空闲时更新/重载插件后
-重新打开原会话，不需重启 daemon、删除原会话或更换模型配置。
-从 `dsh` 升级至 1.3.0 的 `deepseek` 不适用此恢复路径，须遵循顶部的迁移说明。
-
-### 语义检查清单（1.2.1）
-
-以下按 DSH 0.2.2-alpha.2、Paseo 0.15.3 检查。修复留在插件中，不修改
-Paseo/DSH 安装包或用户模型配置。
-
-| 检查项 | 处理与验证 |
+| 方面 | 行为 |
 |---|---|
-| 配置不能静默失效 | 非空 `systemPrompt`、`providerOptions`、通用 `settings`、预授权 `toolPolicy.preapproved`、`persist=false` 明确拒绝。系统指令请在 DSH 中配置，不降级成用户消息。MCP 支持 stdio/Streamable HTTP，拒绝 SSE 和相对可执行路径。 |
-| 取消与并发输入 | 不声明 `prompt.steer`。并发 `auto` 输入由标准 adapter 先中断旧回合再提交新输入；显式 `steer` 拒绝，不冒充无中断插话。真实 DSH 已验证取消后继续发送；协议测试覆盖并发替换及每回合只结束一次。 |
-| 权限审批 | 修复 DSH 审批只带调用 ID、adapter 却拒绝缺失 `rawInput` 的不匹配。使用已有调用信息补齐显示上下文；未知参数保留为空，不编造参数。单次允许/拒绝有协议测试；永久授权、改写工具输入、附加拒绝说明或一键拒绝并中断均明确拒绝。需要中断时另行停止 agent。未做桌面审批框的人工点击验证。 |
-| 模型与思考档位 | 保留不透明的 provider/model 组合 ID。真实 DSH 已遍历模型与思考选项、拒绝无效模型，并验证恢复。协议测试同时检查失败后不提交无效配置。配置切换不能改写已准备好的模型步骤。 |
-| 会话列表 | 遍历全部 `nextCursor`，保留 cwd、去重，循环 cursor 或后续页失败时报错，不返回伪装完整的部分列表；查询与 limit 在取齐后应用。真实 DSH 用每页 1 条的隔离存储验证跨页。 |
-| 回合结束与错误 | `max_tokens`、`max_turn_requests`、`refusal` 添加可见警告，不能把 completed 视作“业务任务成功”。API 错误、进程退出有失败路径测试。DSH 将部分内部结束原因折叠成 `end_turn` 时，插件无法从 ACP 响应猜回原始原因。 |
-| 历史、附件及能力声明 | 恢复后的未完成工具不再永久显示 running；保留失败/取消或未知结果。另修复 adapter 将没有错误详情的工具失败发成 `failed + error:null`、客户端无法解析的问题；显式说明详情缺失，不伪造错误原因。DSH 将工具结果放在 ACP `content`，Paseo adapter 只读取 `rawOutput`；1.2.1 将结果内容映射为实时 `output`，与恢复历史一致，失败详情同样可见，非文本结果只显示类型占位。附件类型占位已测试，不声称恢复媒体预览。撤销 `prompt.command` 声明，原生 slash command 请求明确拒绝，不再偷偷转成普通文本。 |
+| 配置 | 拒绝非空 `systemPrompt`、`providerOptions`、通用 `settings`、`toolPolicy.preapproved`、`persist=false`；MCP 仅 stdio/Streamable HTTP。 |
+| 取消/并发 | 不声明 `prompt.steer`；并发 `auto` 先中断旧回合，显式 `steer` 拒绝；取消只结束当前回合一次。 |
+| 权限 | 仅单次允许/拒绝；补齐 DSH 缺失的工具上下文，不编造参数；拒绝持久授权、改写输入、拒绝说明和拒绝并中断。 |
+| 模型档位 | 保留不透明 ID；无效选择不提交，不污染当前配置。 |
+| 会话列表 | 跟随全部 `nextCursor` 并去重；重复 cursor 或后续页失败报错；`query`/`limit` 取齐后应用。 |
+| 回合结束 | `max_tokens`、`max_turn_requests`、`refusal` 给出警告；API 错误和进程退出算失败。 |
+| 历史/附件 | 未完成工具不再永久 running；无详情失败显式说明；工具结果映射为实时 `output`；非文本只显示类型占位。 |
 
-`title` 仍可作为 Paseo 本地元数据保存，不代表设置了 DSH 原生会话标题。
-不声明原生 steering、持久权限策略、结构化输出、fork/rewind 或桌面专有模式。
-官方 ACP 输出是已提交消息，不是 token 级实时流；插件不伪造缺失的增量。
-模型是否可见图片取决于初始化时的路由能力和 DSH 对当前模型的再次检查；
-插件不提升图片能力声明，也不承诺换模型后图片入口即时更新。
+`title` 只是 Paseo 本地元数据。插件不声明原生 steering、持久权限、结构化输出、
+fork/rewind 或桌面模式；ACP 输出是已提交消息，不是 token 级流。图片能力取决于 DSH
+路由，插件不提升声明。
 
-### 官方 ACP 的其他限制
+### 其他
 
-遵循官方 ACP profile 的能力，不补齐桌面功能。当前已验证版本没有
-Standard/PTC/Minimal/Creator preset 选择、原生 Plan 审批卡片等桌面交互。
-支持的模型、权限请求和会话能力由 DSH/Paseo 握手决定。
+已验证版本没有 Standard/PTC/Minimal/Creator preset、原生 Plan 审批卡片等桌面功能；
+模型、权限与会话能力由 DSH/Paseo 握手决定。
 
-## 开发
+## 开发与测试
 
 ```sh
 npm ci
 npm run typecheck
-npm test
-paseo plugin reload dsh-acp
+npm test        # fixture，不调用模型
 ```
 
-默认测试使用本地 ACP 协议 fixture，不调用模型。启用真实 DSH 集成测试：
+真实 DSH 集成测试（读取 `~/.dsh`，需允许 `dsh` 写 profile；会发两次最小模型请求）：
 
 ```sh
 DSH_TEST_COMMAND=/absolute/path/to/dsh \
-DSH_TEST_MODEL='["your-route","your-model"]' npm test
+DSH_TEST_MODEL='["your-route","your-model"]' \
+npm run test:real
 ```
 
-使用满足 DSH 要求的 Node 运行测试。真实测试复用 ACP profile 的模型凭据，
-以临时 overlay 将会话 root 隔离到测试目录；不修改用户 profile 或会话。
-会发出最小模型请求（取消验证和一个短回复），可能产生少量费用；临时目录
-在关闭进程后清理。权限、输出上限、进程故障等确定性分支由协议 fixture 覆盖。
+`test:real` 在变量缺失、路径不可执行或 JSON 错误时直接失败，不会静默 skip；`--all`
+连 fixture 一起跑。确定性分支由 fixture 覆盖。
 
-黑白 SVG 来自官方 DSH Web frontend 的 favicon，仅将 fill 改为 `currentColor`。
-保留了 DeepSeek 的 MIT 版权声明；商标归各自所有者所有。本项目不是 DeepSeek
-或 Paseo 的官方插件。
+仓库自带 `dsh-acp-testing` skill：真实文件在 `.agents/skills/`（DSH/Copilot 读取），
+`.claude/skills/` 为其符号链接（Claude Code 读取）。
+
+图标来自官方 DSH Web frontend 的 `favicon.svg`（MIT），fill 改为 `currentColor`。
+商标归各自所有者所有；本项目不是 DeepSeek 或 Paseo 的官方插件。
 
 参考：[官方 ACP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)、
 [官方模型配置](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md)、

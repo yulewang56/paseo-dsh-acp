@@ -117,3 +117,143 @@ test("read-only restoration finds the existing file, validates cwd, and leaves i
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("malformed compressed frames fail instead of truncating history", () => {
+  const frame = zstdCompressSync(jsonl([header]));
+  const badMagic = Buffer.from(frame);
+  badMagic.writeUInt32LE(0, 0);
+  assert.throws(() => decodeHistory(badMagic), /frame magic/);
+  const reserved = Buffer.from(frame);
+  reserved[4] |= 0x18;
+  assert.throws(() => decodeHistory(reserved), /frame header/);
+  const invalidBlock = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x07, 0x00, 0x00]);
+  assert.throws(() => decodeHistory(invalidBlock), /compression block/);
+  assert.throws(() => decodeHistory(frame.subarray(0, 5)), /Incomplete/);
+  assert.equal(decodeHistory(Buffer.alloc(0)), "");
+});
+
+test("non-JSON tool arguments stay as text instead of being guessed", () => {
+  const rows = [
+    { type: "tool/call", seq: 0, data: { callId: "call", name: "shell", arguments: "not json" } },
+    { type: "turn/end", seq: 1, data: { reason: { kind: "end_turn" } } },
+  ];
+  const [call] = projectHistory(jsonl([header, ...rows]), sessionId);
+  assert.ok(call && "params" in call);
+  assert.deepEqual(call.params, {
+    type: "tool_call", id: "call", callId: "call", name: "shell",
+    status: "running", error: null,
+    detail: { type: "unknown", input: "not json", output: null },
+  });
+});
+
+test("history discovery honors the session root override, prefers zstd and ignores stray files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-history-root-"));
+  try {
+    const directory = join(root, "project", sessionId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(root, "stray.txt"), "not a project directory");
+    const plain = jsonl([{ ...header, cwd: root }, {
+      type: "user/message", seq: 0, data: {
+        id: "plain", source: { kind: "user" }, content: [{ type: "text", text: "plain copy" }],
+      },
+    }]);
+    const compressed = jsonl([{ ...header, cwd: root }, {
+      type: "user/message", seq: 0, data: {
+        id: "compressed", source: { kind: "user" }, content: [{ type: "text", text: "compressed copy" }],
+      },
+    }]);
+    await writeFile(join(directory, "session.v4.jsonl"), plain);
+    await writeFile(join(directory, "session.v4.jsonl.zstd"), zstdCompressSync(compressed));
+    const result = await readDshHistory({ sessionId, cwd: root }, { DSH_ACP_SESSION_ROOT: root });
+    assert.deepEqual(result, projectHistory(compressed, sessionId));
+    assert.ok(!JSON.stringify(result).includes("plain copy"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("corrupt compressed history fails instead of silently falling back to jsonl", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-history-corrupt-"));
+  try {
+    const directory = join(root, "project", sessionId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "session.v4.jsonl.zstd"), "not a zstd frame");
+    await writeFile(join(directory, "session.v4.jsonl"), jsonl([{ ...header, cwd: root }]));
+    await assert.rejects(
+      readDshHistory({ sessionId, cwd: root }, { DSH_ACP_SESSION_ROOT: root }),
+      /frame magic/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ambiguous or missing persisted sessions fail explicitly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-history-many-"));
+  try {
+    await mkdir(join(root, "one", sessionId), { recursive: true });
+    await mkdir(join(root, "two", sessionId), { recursive: true });
+    await assert.rejects(
+      readDshHistory({ sessionId, cwd: root }, { DSH_ACP_SESSION_ROOT: root }),
+      /Expected one persisted DSH session/,
+    );
+    await assert.rejects(
+      readDshHistory(
+        { sessionId: "22222222-2222-4222-8222-222222222222", cwd: root },
+        { DSH_ACP_SESSION_ROOT: root },
+      ),
+      /found 0/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("history from a working directory that no longer exists is rejected", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-history-cwd-"));
+  try {
+    const directory = join(root, "project", sessionId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, "session.v4.jsonl"),
+      jsonl([{ ...header, cwd: join(root, "deleted") }]),
+    );
+    await assert.rejects(
+      readDshHistory({ sessionId, cwd: root }, { DSH_ACP_SESSION_ROOT: root }),
+      /ENOENT/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("turn end variants surface blocked warnings, aborts and missing error details", () => {
+  const blocked = projectHistory(jsonl([header,
+    { type: "turn/end", seq: 0, data: { reason: { kind: "blocked" } } }]), sessionId);
+  assert.equal(blocked.length, 1);
+  const [warning] = blocked;
+  assert.ok(warning && "params" in warning);
+  assert.deepEqual(warning.params, {
+    type: "notification", id: `dsh-stop:${sessionId}:0`, level: "warning",
+    message: "DSH turn ended with blocked; this does not establish that the task is complete.",
+  });
+
+  const aborted = projectHistory(jsonl([header,
+    { type: "tool/call", seq: 0, data: { callId: "call", name: "test", arguments: "{}" } },
+    { type: "turn/end", seq: 1, data: { reason: { kind: "aborted" } } }]), sessionId);
+  const last = aborted.at(-1);
+  assert.ok(last && "params" in last);
+  assert.deepEqual(last.params, {
+    type: "tool_call", id: "call", callId: "call", name: "test",
+    detail: { type: "unknown", input: {}, output: null },
+    status: "canceled", error: null,
+  });
+
+  assert.deepEqual(projectHistory(jsonl([header,
+    { type: "turn/end", seq: 0, data: { reason: { kind: "error" } } }]), sessionId), []);
+
+  assert.throws(() => projectHistory(jsonl([header, {
+    type: "assistant/message", seq: 0, data: { message: { id: "a", content: [{ type: "text" }] } },
+  }]), sessionId), /Missing text history text/);
+});
+

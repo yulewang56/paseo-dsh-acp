@@ -26,7 +26,8 @@ test("unsupported launch settings fail explicitly before launching or replacing 
   }), /refusing to create a replacement/);
   assert.doesNotThrow(() => validateDshInput({
     type: "session.open", requestId: "open", sessionId: "session",
-    history: "skip", config: {
+    history: "skip", persistence: { version: 1, data: { sessionId: "session" } },
+    config: {
       ...config, toolPolicy: { preapproved: [] }, providerOptions: {}, systemPrompt: "",
       mcpServers: { server: { type: "stdio", command: process.execPath } },
     },
@@ -52,6 +53,10 @@ test("unsupported prompt and configuration semantics are not downgraded into ord
     changes: { settings: {}, providerOptions: { ignored: true } },
   };
   assert.throws(() => validateDshInput(withOptions), /providerOptions/);
+  assert.throws(() => validateDshInput({
+    type: "session.configure", requestId: "change", sessionId: "session",
+    changes: { mode: "plan" },
+  }), /agent modes/);
   assert.doesNotThrow(() => validateDshInput({
     type: "session.configure", requestId: "change", sessionId: "session",
     changes: { model: '["route","model"]', thinkingOption: "high" },
@@ -77,4 +82,11 @@ test("single-use permission decisions do not silently become persistent grants o
       type: "session.permission", sessionId: "session", permissionId: "permission", response,
     }));
   }
+});
+
+test("session.open without a persist flag is rejected instead of silently persisting", () => {
+  assert.throws(() => validateDshInput({
+    type: "session.open", requestId: "open", sessionId: "session", history: "skip",
+    config: { ...config, persist: undefined as unknown as boolean },
+  }), /persist=false/);
 });

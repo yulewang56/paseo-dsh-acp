@@ -51,6 +51,9 @@ lines.on("line", (line) => {
     case "session/close":
       reply(id, {});
       break;
+    case "session/resume":
+      reply(id, { sessionId, configOptions: options() });
+      break;
     case "session/list":
       reply(id, params.cursor
         ? { sessions: [{ sessionId: "old", cwd: "/project", title: "needle" }], nextCursor: null }
@@ -103,6 +106,26 @@ lines.on("line", (line) => {
           title: "Fixture failed result tool", status: "in_progress", rawInput: {} });
         update({ sessionUpdate: "tool_call_update", toolCallId: "tool-failed-result", status: "failed",
           content: [{ type: "content", content: { type: "text", text: "fixture tool failure detail" } }] });
+      }
+      if (text === "tool-image-result") {
+        update({ sessionUpdate: "tool_call", toolCallId: "tool-image-result",
+          title: "Fixture image tool", status: "in_progress", rawInput: {} });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "tool-image-result", status: "completed",
+          content: [{ type: "content", content: { type: "image", attachmentId: "opaque" } }] });
+      }
+      if (text === "permission-after-complete") {
+        update({ sessionUpdate: "tool_call", toolCallId: "completed-call",
+          title: "Completed fixture tool", status: "in_progress", rawInput: { path: "/done" } });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "completed-call", status: "completed" });
+        permission = `permission-${++sequence}`;
+        send({ id: permission, method: "session/request_permission", params: {
+          sessionId, toolCall: { toolCallId: "completed-call" },
+          options: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        } });
+        break;
       }
       if (text === "error") {
         send({ id, error: { code: -32603, message: "turn failed: fixture API failure" } });

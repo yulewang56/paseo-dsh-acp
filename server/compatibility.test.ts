@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DshAcpCompatibility } from "./compatibility.ts";
+import { historyItemMethod } from "./history.ts";
 import type { AcpStreamMessage } from "@getpaseo/plugin/server/acp";
 
 const sessionId = "11111111-2222-4333-8444-555555555555";
@@ -138,4 +139,59 @@ test("DSH ID-only permission requests acquire tool context without inventing too
       toolCallId: "call", title: "Read a file", rawInput: { path: "/file" },
     }, options: [] },
   }]);
+});
+
+test("tool output is not overwritten when DSH already supplied rawOutput", async () => {
+  const bridge = new DshAcpCompatibility({}, false);
+  const update: AcpStreamMessage = {
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "tool_call_update", toolCallId: "call", status: "completed",
+      content: [{ type: "content", content: { type: "text", text: "ignored" } }],
+      rawOutput: "kept by DSH",
+    } },
+  };
+  assert.deepEqual(await bridge.fromAgent(update), [update]);
+});
+
+test("pagination without a transport and unparseable pages fail instead of returning partial lists", async () => {
+  const bridge = new DshAcpCompatibility({}, false);
+  bridge.toAgent({ jsonrpc: "2.0", id: 8, method: "session/list", params: {} });
+  const [unavailable] = await bridge.fromAgent({
+    jsonrpc: "2.0", id: 8, result: { sessions: [], nextCursor: "page2" },
+  });
+  assert.ok("error" in unavailable);
+  assert.match(unavailable.error.message, /transport is unavailable/);
+
+  bridge.toAgent({ jsonrpc: "2.0", id: 9, method: "session/list", params: {} });
+  const [invalid] = await bridge.fromAgent({
+    jsonrpc: "2.0", id: 9, result: { sessions: "not an array" },
+  });
+  assert.ok("error" in invalid);
+  assert.equal(invalid.error.code, -32603);
+});
+
+test("every explicit output limit warns, while ordinary completion does not", async () => {
+  for (const stopReason of ["max_tokens", "max_turn_requests", "refusal"]) {
+    const bridge = new DshAcpCompatibility({}, false);
+    bridge.toAgent({
+      jsonrpc: "2.0", id: 7, method: "session/prompt",
+      params: { sessionId, prompt: [{ type: "text", text: "hello" }] },
+    });
+    const [warning, result] = await bridge.fromAgent({
+      jsonrpc: "2.0", id: 7, result: { stopReason },
+    });
+    assert.ok("method" in warning && warning.method === historyItemMethod);
+    const params = warning.params as { level: string; message: string };
+    assert.equal(params.level, "warning");
+    assert.ok(params.message.includes(stopReason));
+    assert.ok("result" in result);
+  }
+  const bridge = new DshAcpCompatibility({}, false);
+  bridge.toAgent({
+    jsonrpc: "2.0", id: 8, method: "session/prompt",
+    params: { sessionId, prompt: [{ type: "text", text: "hello" }] },
+  });
+  const normal = await bridge.fromAgent({ jsonrpc: "2.0", id: 8, result: { stopReason: "end_turn" } });
+  assert.equal(normal.length, 1);
+  assert.ok("result" in normal[0]);
 });

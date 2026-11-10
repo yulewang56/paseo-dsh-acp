@@ -14,6 +14,7 @@
     "OVERVIEW.md",
     "LICENSE",
     "README.md",
+    "README.en.md",
     "examples/",
     "icon.svg",
     "index.server.ts",
@@ -21,7 +22,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test server/*.test.ts"
+    "test": "node --experimental-strip-types --test server/*.test.ts",
+    "test:real": "node scripts/test-real.mjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.15.0-beta.1",
