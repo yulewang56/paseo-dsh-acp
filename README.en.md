@@ -17,7 +17,6 @@ Everything below runs on the **machine hosting the Paseo daemon**.
 - Paseo >= 0.15.3 with plugins enabled.
 - Node >= 22.15 on the daemon (Zstandard decompression).
 - The official DSH CLI; verified against 0.2.2-alpha.2 (which requires Node >= 24.9.0).
-- Read access to the private repository; configure GitHub/Git credentials first.
 
 Plugins are trusted, unsandboxed code and run with the daemon user's privileges. Review
 the source before installing. The plugin does not install DSH or upload configuration or
@@ -41,7 +40,6 @@ registered by official Desktop also works if it supports ACP.
 Enable the daemon's global plugin switch first (Settings → Plugins).
 
 ```sh
-gh auth setup-git
 paseo plugin add git:yulewang56/paseo-dsh-acp
 paseo plugin ls
 paseo provider diagnostic deepseek --json
@@ -50,7 +48,7 @@ paseo provider diagnostic deepseek --json
 If Git installation is unavailable, use a directory source:
 
 ```sh
-gh repo clone yulewang56/paseo-dsh-acp
+git clone https://github.com/yulewang56/paseo-dsh-acp.git
 paseo plugin install /absolute/path/to/paseo-dsh-acp
 ```
 

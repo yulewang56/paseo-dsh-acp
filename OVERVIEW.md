@@ -1,5 +1,4 @@
-Registers the `deepseek` provider through Paseo's standard ACP adapter and
-adds a monochrome DeepSeek icon that follows the client's theme.
+Registers the `deepseek` provider through Paseo's standard ACP adapter.
 
 Uses `dsh --profile acp` on the daemon host. DSH handles the agent,
 tools, permissions and model requests. A compatibility layer translates
@@ -29,7 +28,3 @@ Unsupported Paseo launch settings and permission mutations are rejected explicit
 Only one-shot approval decisions are supported. Native slash commands and
 non-interrupting steering are not advertised. Session listing follows all cursor
 pages, and output limits produce a visible warning instead of implying task success.
-
-The icon is adapted
-from the installed official DSH Web frontend's `favicon.svg` (DeepSeek Harness,
-MIT license), changing only its fill to `currentColor`.

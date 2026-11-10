@@ -17,7 +17,6 @@ Paseo → 标准 ACP adapter + DSH 恢复兼容层 → dsh --profile acp → DSH
 - Paseo >= 0.15.3，已启用插件。
 - daemon Node >= 22.15（Zstandard 解压）。
 - 官方 DSH CLI，已验证 0.2.2-alpha.2（该版本要求 Node >= 24.9.0）。
-- 私有仓库读取权限，先配置 GitHub/Git 凭据。
 
 插件是受信任的非沙箱代码，以 daemon 用户权限运行，安装前请检查源码。插件不安装
 DSH、不上传配置或凭据，历史回放只读访问 DSH 会话文件。
@@ -40,7 +39,6 @@ dsh --profile acp --help
 先开启 daemon 的全局插件开关（Settings → Plugins）。
 
 ```sh
-gh auth setup-git
 paseo plugin add git:yulewang56/paseo-dsh-acp
 paseo plugin ls
 paseo provider diagnostic deepseek --json
@@ -49,7 +47,7 @@ paseo provider diagnostic deepseek --json
 Git 安装不可用时使用目录源：
 
 ```sh
-gh repo clone yulewang56/paseo-dsh-acp
+git clone https://github.com/yulewang56/paseo-dsh-acp.git
 paseo plugin install /absolute/path/to/paseo-dsh-acp
 ```
 
