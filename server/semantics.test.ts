@@ -90,3 +90,30 @@ test("session.open without a persist flag is rejected instead of silently persis
     config: { ...config, persist: undefined as unknown as boolean },
   }), /persist=false/);
 });
+
+test("only auto_accept is accepted as a plugin option", () => {
+  assert.doesNotThrow(() => validateDshInput({
+    type: "session.open", requestId: "open", sessionId: "session", history: "skip",
+    config: { ...config, settings: { auto_accept: true }, providerOptions: { auto_accept: false } },
+  }));
+  assert.throws(() => validateDshInput({
+    type: "session.open", requestId: "open", sessionId: "session", history: "skip",
+    config: { ...config, settings: { auto_accept: "yes" as unknown as boolean } },
+  }), /must be a boolean/);
+  assert.throws(() => validateDshInput({
+    type: "session.open", requestId: "open", sessionId: "session", history: "skip",
+    config: { ...config, settings: { other: true } },
+  }), /only auto_accept/);
+  assert.throws(() => validateDshInput({
+    type: "session.open", requestId: "open", sessionId: "session", history: "skip",
+    config: { ...config, providerOptions: { other: true } },
+  }), /only auto_accept/);
+  assert.doesNotThrow(() => validateDshInput({
+    type: "session.configure", requestId: "change", sessionId: "session",
+    changes: { settings: { auto_accept: true } },
+  }));
+  assert.throws(() => validateDshInput({
+    type: "session.configure", requestId: "change", sessionId: "session",
+    changes: { settings: { other: true } },
+  }), /only auto_accept/);
+});

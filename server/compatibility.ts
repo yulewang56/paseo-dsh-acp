@@ -20,6 +20,14 @@ const listSchema = z.object({
 type RequestId = string | number | null;
 type HistoryReader = typeof readDshHistory;
 
+/** Per-session auto-accept state shared with the provider wrapper. */
+export interface ApprovalState {
+  /** Value applied to the next session this connection opens. */
+  pending: boolean | undefined;
+  /** Effective value keyed by native DSH session ID. */
+  bySession: Map<string, boolean>;
+}
+
 function toolOutputText(update: Record<string, unknown>): string | undefined {
   if (!Array.isArray(update.content)) return undefined;
   const parts: string[] = [];
@@ -39,6 +47,7 @@ function toolOutputText(update: Record<string, unknown>): string | undefined {
 
 export class DshAcpCompatibility {
   private readonly initializations = new Set<RequestId>();
+  private readonly newSessions = new Set<RequestId>();
   private readonly loads = new Map<RequestId, z.infer<typeof loadSchema>>();
   private readonly prompts = new Map<RequestId, string>();
   private readonly toolCalls = new Map<string, Record<string, unknown>>();
@@ -53,17 +62,20 @@ export class DshAcpCompatibility {
   private readonly replay: boolean;
   private readonly readHistory: HistoryReader;
   private readonly sendToAgent?: (message: AcpStreamMessage) => Promise<void>;
+  private readonly approval: ApprovalState;
 
   constructor(
     env: NodeJS.ProcessEnv,
     replay: boolean,
     readHistory: HistoryReader = readDshHistory,
     sendToAgent?: (message: AcpStreamMessage) => Promise<void>,
+    approval: ApprovalState = { pending: undefined, bySession: new Map() },
   ) {
     this.env = env;
     this.replay = replay;
     this.readHistory = readHistory;
     this.sendToAgent = sendToAgent;
+    this.approval = approval;
   }
 
   toAgent(message: AcpStreamMessage): AcpStreamMessage {
@@ -77,6 +89,14 @@ export class DshAcpCompatibility {
     }
     if (message.method === "session/prompt") {
       this.prompts.set(message.id, z.object({ sessionId: z.string() }).parse(message.params).sessionId);
+    }
+    if (message.method === "session/new") this.newSessions.add(message.id);
+    if (message.method === "session/load" || message.method === "session/resume") {
+      const identity = z.object({ sessionId: z.string() }).passthrough().parse(message.params);
+      if (this.approval.pending !== undefined) {
+        this.approval.bySession.set(identity.sessionId, this.approval.pending);
+        this.approval.pending = undefined;
+      }
     }
     if (message.method === "session/load" && this.resumeOnly) {
       this.loads.set(message.id, loadSchema.parse(message.params));
@@ -107,8 +127,30 @@ export class DshAcpCompatibility {
     }
     if ("method" in message && message.method === "session/request_permission") {
       const params = z.object({
+        sessionId: z.string(),
         toolCall: z.object({ toolCallId: z.string() }).passthrough(),
+        options: z.array(z.object({ optionId: z.string(), kind: z.string() }).passthrough()).default([]),
       }).passthrough().parse(message.params);
+      if (this.approval.bySession.get(params.sessionId) === true && this.sendToAgent) {
+        const allow = params.options.find((option) => option.kind === "allow_once") ??
+          params.options.find((option) => option.kind.startsWith("allow"));
+        if (allow) {
+          const requestId = z.union([z.string(), z.number()]).parse(
+            (message as { id?: unknown }).id,
+          );
+          await this.sendToAgent({
+            jsonrpc: "2.0", id: requestId,
+            result: { outcome: { outcome: "selected", optionId: allow.optionId } },
+          });
+          return [{
+            jsonrpc: "2.0", method: historyItemMethod,
+            params: {
+              type: "notification", id: `dsh-auto-approve:${params.sessionId}:${requestId}`,
+              level: "info", message: "Auto Accept approved a DSH permission request.",
+            },
+          }];
+        }
+      }
       const current = this.toolCalls.get(params.toolCall.toolCallId);
       // DSH sends only the call ID here; the shim rejects undefined rawInput.
       return [{ ...message, params: {
@@ -119,6 +161,13 @@ export class DshAcpCompatibility {
           rawInput: params.toolCall.rawInput ?? current?.rawInput ?? null,
         },
       } }];
+    }
+    if ("id" in message && this.newSessions.delete(message.id) && "result" in message) {
+      const created = z.object({ sessionId: z.string() }).passthrough().parse(message.result);
+      if (this.approval.pending !== undefined) {
+        this.approval.bySession.set(created.sessionId, this.approval.pending);
+        this.approval.pending = undefined;
+      }
     }
     if (!("id" in message) || "method" in message) return [message];
     if (this.initializations.delete(message.id) && "result" in message) {

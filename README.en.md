@@ -186,6 +186,37 @@ persistent permissions, structured output, fork/rewind, or desktop-only modes; A
 output is committed messages, not token-level streaming. Image support depends on DSH
 routing; the plugin does not upgrade capability declarations.
 
+### Permissions and Auto Accept
+
+DSH approvals are one-shot allow/reject; there is no "always allow". The plugin
+adds an `Auto Accept` toggle in the composer: when enabled it answers
+`session/request_permission` with `allow-once` and leaves an info item in the
+timeline. The sandbox still applies, so an out-of-workspace write is denied first
+and then escalated.
+
+The DSH sandbox mode is fixed at launch (default `workspace-write`):
+
+```json
+{
+  "agents": {
+    "providers": {
+      "deepseek": { "env": { "DSH_PERMISSION_MODE": "danger-full-access" } }
+    }
+  }
+}
+```
+
+| Value | Sandbox | Approval |
+|---|---|---|
+| `read-only` | read-only | ask |
+| `workspace-write` | workspace writable | ask |
+| `danger-full-access` | unrestricted | never (no prompts) |
+
+The mode is per process, so changing it requires a provider reload. Paseo has no
+per-session selector, and ACP does not expose DSH's `/permission`. See
+[ADR 0001](docs/adr/0001-permissions-and-options.md) for the design and migration
+plan.
+
 ### Other
 
 The verified version lacks Standard/PTC/Minimal/Creator presets, native Plan approval

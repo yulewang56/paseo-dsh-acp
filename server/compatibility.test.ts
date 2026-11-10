@@ -195,3 +195,29 @@ test("every explicit output limit warns, while ordinary completion does not", as
   assert.equal(normal.length, 1);
   assert.ok("result" in normal[0]);
 });
+
+test("auto accept answers a permission request without surfacing it", async () => {
+  const forwarded: AcpStreamMessage[] = [];
+  const bridge = new DshAcpCompatibility({}, false, undefined,
+    async (message) => { forwarded.push(message); },
+    { pending: true, bySession: new Map() });
+  bridge.toAgent({
+    jsonrpc: "2.0", id: 3, method: "session/new", params: { cwd: "/project", mcpServers: [] },
+  });
+  await bridge.fromAgent({ jsonrpc: "2.0", id: 3, result: { sessionId } });
+  const [notice] = await bridge.fromAgent({
+    jsonrpc: "2.0", id: "perm", method: "session/request_permission", params: {
+      sessionId, toolCall: { toolCallId: "call" },
+      options: [
+        { optionId: "allow-once", kind: "allow_once" },
+        { optionId: "reject-once", kind: "reject_once" },
+      ],
+    },
+  });
+  assert.deepEqual(forwarded, [{
+    jsonrpc: "2.0", id: "perm",
+    result: { outcome: { outcome: "selected", optionId: "allow-once" } },
+  }]);
+  assert.ok("method" in notice && notice.method === historyItemMethod);
+  assert.equal((notice.params as { level: string }).level, "info");
+});

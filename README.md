@@ -173,6 +173,35 @@ DSH 0.2.2-alpha.2 只有 `session/resume`，没有 `session/load` 和历史回�
 fork/rewind 或桌面模式；ACP 输出是已提交消息，不是 token 级流。图片能力取决于 DSH
 路由，插件不提升声明。
 
+### 权限与自动批准
+
+DSH 的审批只有单次允许/拒绝，没有“始终允许”。插件在 composer 中提供一个
+`Auto Accept` 开关：开启后插件直接以 `allow-once` 应答
+`session/request_permission` 并在时间线留下 info 记录；沙箱仍然生效，越界写仍会
+先被拒绝再升级。
+
+DSH 的沙箱档位由启动环境决定（默认 `workspace-write`）：
+
+```json
+{
+  "agents": {
+    "providers": {
+      "deepseek": { "env": { "DSH_PERMISSION_MODE": "danger-full-access" } }
+    }
+  }
+}
+```
+
+| 值 | 沙箱 | 审批 |
+|---|---|---|
+| `read-only` | 只读 | ask |
+| `workspace-write` | 工作区可写 | ask |
+| `danger-full-access` | 不限制 | never（无弹窗） |
+
+该模式是进程级的，修改后需重载 provider；Paseo 里没有 per-session 选择器，ACP
+也不暴露 DSH 的 `/permission`。设计与迁移计划见
+[ADR 0001](docs/adr/0001-permissions-and-options.md)。
+
 ### 其他
 
 已验证版本没有 Standard/PTC/Minimal/Creator preset、原生 Plan 审批卡片等桌面功能；

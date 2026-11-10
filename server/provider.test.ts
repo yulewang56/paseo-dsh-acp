@@ -52,7 +52,11 @@ async function harness() {
     type: "session.open", requestId: "open", sessionId: "boundary", history: "skip",
     config: { cwd: "/project", env: {}, mcpServers: {}, settings: {}, persist: true },
   });
-  return { connection, events, wait, request, prompt, open };
+  const openWith = (settings: { auto_accept?: boolean }) => request({
+    type: "session.open", requestId: "open", sessionId: "boundary", history: "skip",
+    config: { cwd: "/project", env: {}, mcpServers: {}, settings, persist: true },
+  });
+  return { connection, events, wait, request, prompt, open, openWith };
 }
 
 test("capabilities, cursor pagination, query and limit are truthful at the provider boundary", async () => {
@@ -397,4 +401,61 @@ test("sending after close rejects instead of leaving a pending query", async () 
   const h = await harness();
   await h.connection.close();
   await assert.rejects(h.connection.send({ type: "sessions", requestId: "late", cwd: "/project" }));
+});
+
+test("the Auto Accept setting approves permissions without a client prompt", async () => {
+  const h = await harness();
+  try {
+    await h.openWith({ auto_accept: true });
+    const config = h.events.filter((event) => event.type === "session.config").at(-1);
+    assert.ok(config?.type === "session.config");
+    assert.deepEqual(config.config.settings.find((setting) => setting.id === "auto_accept"), {
+      type: "toggle", id: "auto_accept", label: "Auto Accept",
+      description: "Automatically approve DSH permission requests.", value: true,
+    });
+    const completed = h.wait((event) => event.type === "session.turn" &&
+      event.turnId === "acp:permission" && event.state === "completed");
+    await h.prompt("permission", "permission");
+    await completed;
+    assert.ok(!h.events.some((event) => event.type === "session.permission"));
+    assert.ok(h.events.some((event) => event.type === "timeline.item" &&
+      event.item.type === "notification" && event.item.message.includes("Auto Accept")));
+    assert.ok(h.events.some((event) => event.type === "timeline.item" &&
+      event.item.type === "assistant_message" && event.item.text === "allow-once"));
+  } finally { await h.connection.close(); }
+});
+
+test("Auto Accept can be toggled at runtime and off again", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    await h.request({
+      type: "session.configure", requestId: "auto-on", sessionId: "boundary",
+      changes: { settings: { auto_accept: true } },
+    });
+    const enabled = h.events.filter((event) => event.type === "session.config").at(-1);
+    assert.ok(enabled?.type === "session.config");
+    assert.equal(enabled.config.settings.find((setting) => setting.id === "auto_accept")?.value, true);
+
+    const autoCompleted = h.wait((event) => event.type === "session.turn" &&
+      event.turnId === "acp:permission" && event.state === "completed");
+    await h.prompt("permission", "permission");
+    await autoCompleted;
+    assert.ok(!h.events.some((event) => event.type === "session.permission"));
+
+    await h.request({
+      type: "session.configure", requestId: "auto-off", sessionId: "boundary",
+      changes: { settings: { auto_accept: false } },
+    });
+    const asked = h.wait((event) => event.type === "session.permission");
+    await h.prompt("permission", "permission");
+    const event = await asked;
+    if (event.type !== "session.permission") assert.fail();
+    const completed = h.wait((e) => e.type === "session.turn" && e.turnId === "acp:permission" && e.state === "completed");
+    await h.connection.send({
+      type: "session.permission", sessionId: "boundary", permissionId: event.request.id,
+      response: { behavior: "allow", selectedActionId: "allow-once" },
+    });
+    await completed;
+  } finally { await h.connection.close(); }
 });

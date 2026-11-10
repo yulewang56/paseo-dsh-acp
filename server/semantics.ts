@@ -1,8 +1,23 @@
 import { isAbsolute } from "node:path";
 import type { ProviderInput } from "@getpaseo/plugin/server/provider";
 
+const AUTO_ACCEPT = "auto_accept";
+
 function unsupported(field: string): never {
   throw new Error(`DSH ACP does not support ${field}; the request was not applied`);
+}
+
+/**
+ * Paseo plugin options are limited to the one knob this plugin owns. Anything
+ * else would be silently ignored, so it is rejected instead.
+ */
+function validateOptions(options: Readonly<Record<string, unknown>> | undefined, label: string): void {
+  for (const key of Object.keys(options ?? {})) {
+    if (key !== AUTO_ACCEPT) unsupported(`${label} '${key}'; only auto_accept is supported`);
+  }
+  if (options && AUTO_ACCEPT in options && typeof options[AUTO_ACCEPT] !== "boolean") {
+    throw new Error("DSH ACP auto_accept must be a boolean");
+  }
 }
 
 export function validateDshInput(input: ProviderInput): void {
@@ -12,8 +27,8 @@ export function validateDshInput(input: ProviderInput): void {
     if (!config.persist) unsupported("persist=false; the official ACP profile always persists sessions");
     if (config.toolPolicy?.preapproved.length) unsupported("toolPolicy.preapproved");
     if (config.mode) unsupported("agent modes");
-    if (Object.keys(config.providerOptions ?? {}).length) unsupported("providerOptions");
-    if (Object.keys(config.settings).length) unsupported("generic settings; use model and thinkingOption");
+    validateOptions(config.providerOptions, "providerOptions");
+    validateOptions(config.settings, "generic setting");
     if (input.persistence) {
       const value = input.persistence;
       if (value.version !== 1 || typeof value.data !== "object" || value.data === null ||
@@ -29,10 +44,10 @@ export function validateDshInput(input: ProviderInput): void {
     }
   } else if (input.type === "session.configure") {
     if (input.changes.mode !== undefined) unsupported("agent modes");
-    if (Object.keys(input.changes.settings ?? {}).length) unsupported("generic settings");
-    // Newer daemons send providerOptions in addition to legacy settings.
-    if ("providerOptions" in input.changes && input.changes.providerOptions &&
-        Object.keys(input.changes.providerOptions).length) unsupported("providerOptions");
+    validateOptions(input.changes.settings, "generic setting");
+    // Paseo 0.15.3 mirrors plugin settings into providerOptions on the same patch.
+    const mirrored = (input.changes as { providerOptions?: Record<string, unknown> }).providerOptions;
+    validateOptions(mirrored, "providerOptions");
   } else if (input.type === "session.prompt") {
     if (input.prompt.delivery === "steer") unsupported("non-interrupting steering");
     if (input.prompt.input.type === "command") unsupported("native slash commands");
