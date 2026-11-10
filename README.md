@@ -72,8 +72,9 @@ paseo plugin install /absolute/path/to/paseo-dsh-acp
 }
 ```
 
-Windows 用实际 `dsh.cmd` 路径；目前仅在 macOS 实测，其他平台同样跑诊断。默认 Node
-太旧时，把 `command` 改为
+Windows 用实际 `dsh.cmd` 路径；目前仅在 macOS 实测，其他平台同样跑诊断。Windows
+冷启动可能耗时 7–14 秒；插件把 ACP 初始化超时设为 30 秒，不需要先启动 `dsh web`
+预热。默认 Node 太旧时，把 `command` 改为
 `["/path/to/node", "/path/to/dsh/lib/bin.js", "--profile", "acp"]`。
 
 ```sh

@@ -161,7 +161,7 @@ export function createDshProvider(): ProviderRegistration {
         id: "deepseek",
         label: "DeepSeek Harness",
         connector: () => connectDsh(launch, context.getStore()),
-        acpOptions: { waitForInitialCommands: true },
+        acpOptions: { waitForInitialCommands: true, startupTimeoutMs: 30_000 },
         transformers: [{
           notification(notification, context) {
             if (notification.method === "dsh/skills_warning") {

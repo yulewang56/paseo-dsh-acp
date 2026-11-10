@@ -1,4 +1,10 @@
+import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+
+if (process.env.DSH_FIXTURE_PID_FILE) {
+  writeFileSync(process.env.DSH_FIXTURE_PID_FILE, String(process.pid));
+}
+const initializeDelay = Number(process.env.DSH_FIXTURE_INITIALIZE_DELAY_MS ?? 0);
 
 const sessionId = "11111111-2222-4333-8444-555555555555";
 let model = '["fixture","alpha"]';
@@ -40,11 +46,14 @@ lines.on("line", (line) => {
   }
   const { id, method, params } = message;
   switch (method) {
-    case "initialize":
-      reply(id, { protocolVersion: 1, agentInfo: { name: "dsh-test", version: "1" },
+    case "initialize": {
+      const result = { protocolVersion: 1, agentInfo: { name: "dsh-test", version: "1" },
         agentCapabilities: { sessionCapabilities: { resume: {}, list: {}, close: {} },
-          promptCapabilities: { image: true } }, authMethods: [] });
+          promptCapabilities: { image: true } }, authMethods: [] };
+      if (initializeDelay > 0) setTimeout(() => reply(id, result), initializeDelay);
+      else reply(id, result);
       break;
+    }
     case "session/new":
       reply(id, { sessionId, configOptions: options() });
       update({ sessionUpdate: "available_commands_update",

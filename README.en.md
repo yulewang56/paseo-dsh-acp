@@ -74,7 +74,9 @@ this object into `~/.paseo/config.json`:
 ```
 
 On Windows use the actual `dsh.cmd` path. Only macOS has been tested directly; run the
-same diagnostics elsewhere. If the default Node is too old, set `command` to
+same diagnostics elsewhere. Windows cold start can take 7–14 seconds; the plugin allows
+30 seconds for ACP initialization, and starting `dsh web` first is not required. If the
+default Node is too old, set `command` to
 `["/path/to/node", "/path/to/dsh/lib/bin.js", "--profile", "acp"]`.
 
 ```sh

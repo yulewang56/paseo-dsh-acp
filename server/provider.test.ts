@@ -294,6 +294,32 @@ test("a missing launch command rejects at connect instead of hanging", { timeout
   }));
 });
 
+test("connect tolerates an initialize slower than the ACP default and closes the probe", { timeout: 30000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "dsh-startup-"));
+  const pidFile = join(directory, "pid");
+  const started = Date.now();
+  const connection = await createDshProvider().connect({
+    versions: [1], capabilities: ["prompt.message"],
+    launch: {
+      command: process.execPath,
+      args: [fileURLToPath(new URL("./fixtures/acp-agent.mjs", import.meta.url))],
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      )), DSH_ACP_SESSION_ROOT: directory,
+        DSH_FIXTURE_INITIALIZE_DELAY_MS: "11000", DSH_FIXTURE_PID_FILE: pidFile },
+    },
+  });
+  try {
+    assert.ok(Date.now() - started >= 10500, "fixture initialize should exceed the 10s ACP default");
+    const pid = Number(await readFile(pidFile, "utf8"));
+    assert.ok(Number.isInteger(pid) && pid > 0);
+    assert.throws(() => process.kill(pid, 0), /ESRCH/);
+  } finally {
+    await connection.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("close escalates to SIGKILL when the agent ignores stdin EOF and SIGTERM", { timeout: 20000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "dsh-hung-"));
   const pidFile = join(directory, "pid");
