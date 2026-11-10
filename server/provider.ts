@@ -3,11 +3,12 @@ import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawnProcess, terminateProcess } from "@getpaseo/plugin/server";
 import { runAcpProvider, type AcpStream, type AcpStreamMessage } from "@getpaseo/plugin/server/acp";
-import type { ProviderLaunch, ProviderRegistration } from "@getpaseo/plugin/server/provider";
+import type { ProviderEvent, ProviderInput, ProviderLaunch, ProviderRegistration } from "@getpaseo/plugin/server/provider";
 import { ProviderEventSchema } from "@getpaseo/plugin/server/provider";
 import { z } from "zod";
 import { DshAcpCompatibility } from "./compatibility.ts";
 import { historyItemMethod } from "./history.ts";
+import { validateDshInput } from "./semantics.ts";
 
 interface OpenContext {
   env: Readonly<Record<string, string>>;
@@ -35,8 +36,13 @@ function parseMessage(line: string): AcpStreamMessage {
 
 function connectDsh(launch: ProviderLaunch, context?: OpenContext): AcpStream {
   const env = { ...launch.env, ...context?.env };
-  const compatibility = new DshAcpCompatibility(env, context?.replay ?? false);
   const child = spawnProcess(launch.command, launch.args, { env, stdio: "pipe" });
+  const write = async (message: AcpStreamMessage) => {
+    await new Promise<void>((resolve, reject) => {
+      child.stdin.write(JSON.stringify(message) + "\n", (error) => error ? reject(error) : resolve());
+    });
+  };
+  const compatibility = new DshAcpCompatibility(env, context?.replay ?? false, undefined, write);
   child.stderr.resume();
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const iterator = lines[Symbol.asyncIterator]();
@@ -60,10 +66,7 @@ function connectDsh(launch: ProviderLaunch, context?: OpenContext): AcpStream {
   return {
     writable: new WritableStream<AcpStreamMessage>({
       async write(message) {
-        const payload = JSON.stringify(compatibility.toAgent(message)) + "\n";
-        await new Promise<void>((resolve, reject) => {
-          child.stdin.write(payload, (error) => error ? reject(error) : resolve());
-        });
+        await write(compatibility.toAgent(message));
       },
       close: stop,
       abort: stop,
@@ -123,12 +126,66 @@ export function createDshProvider(): ProviderRegistration {
         }],
       });
       const connection = await provider.connect(request);
+      const capabilities = connection.capabilities.filter((value) => value !== "prompt.command");
+      const listeners = new Set<(event: ProviderEvent) => void>();
+      const queries = new Map<string, Extract<ProviderInput, { type: "sessions" }>>();
+      const unsubscribe = connection.onEvent((event) => {
+        if (event.type === "timeline.item" && event.item.type === "tool_call" &&
+            event.item.status === "failed" && event.item.error === null) {
+          // The ACP shim permits null here, but the client timeline requires an error.
+          event = { ...event, item: {
+            ...event.item, error: "DSH reported a failed tool call without error details",
+          } };
+        } else if (event.type === "session.opened") {
+          event = { ...event, capabilities: event.capabilities.filter((value) => value !== "prompt.command") };
+        } else if (event.type === "sessions") {
+          const query = queries.get(event.requestId);
+          queries.delete(event.requestId);
+          if (query) {
+            const text = query.query?.toLowerCase();
+            const sessions = text ? event.sessions.filter((session) =>
+              [session.title, session.cwd, JSON.stringify(session.persistence.data)]
+                .some((value) => value?.toLowerCase().includes(text)),
+            ) : event.sessions;
+            event = { ...event, sessions: query.limit ? sessions.slice(0, query.limit) : sessions };
+          }
+        } else if (event.type === "request.failed") {
+          queries.delete(event.requestId);
+        }
+        for (const listener of listeners) listener(event);
+      });
       return {
         ...connection,
+        capabilities,
+        onEvent(listener) {
+          listeners.add(listener);
+          return () => { listeners.delete(listener); };
+        },
         send(input) {
+          validateDshInput(input);
+          if (input.type === "sessions") {
+            queries.set(input.requestId, input);
+            return context.run(undefined, async () => {
+              try {
+                await connection.send({ ...input, limit: undefined });
+              } catch (error) {
+                queries.delete(input.requestId);
+                throw error;
+              }
+            });
+          }
           return context.run(input.type === "session.open" ? {
             env: input.config.env, replay: input.history === "replay",
           } : undefined, () => connection.send(input));
+        },
+        async close() {
+          try {
+            await connection.close();
+          } finally {
+            unsubscribe();
+            queries.clear();
+            listeners.clear();
+          }
         },
       };
     },

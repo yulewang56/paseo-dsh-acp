@@ -17,6 +17,11 @@ install software or access credentials itself. Historical non-text attachments
 have type placeholders rather than restored previews. Non-JSONL storage
 backends are not supported for history replay.
 
+Unsupported Paseo launch settings and permission mutations are rejected explicitly.
+Only one-shot approval decisions are supported. Native slash commands and
+non-interrupting steering are not advertised. Session listing follows all cursor
+pages, and output limits produce a visible warning instead of implying task success.
+
 The icon is adapted
 from the installed official DSH Web frontend's `favicon.svg` (DeepSeek Harness,
 MIT license), changing only its fill to `currentColor`.

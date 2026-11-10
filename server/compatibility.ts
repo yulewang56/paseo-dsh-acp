@@ -1,6 +1,6 @@
 import type { AcpStreamMessage } from "@getpaseo/plugin/server/acp";
 import { z } from "zod";
-import { readDshHistory } from "./history.ts";
+import { historyItemMethod, readDshHistory } from "./history.ts";
 
 const initializeSchema = z.object({
   agentCapabilities: z.object({
@@ -9,6 +9,13 @@ const initializeSchema = z.object({
   }).passthrough(),
 }).passthrough();
 const loadSchema = z.object({ sessionId: z.string(), cwd: z.string() });
+const listSchema = z.object({
+  sessions: z.array(z.object({
+    sessionId: z.string(), cwd: z.string(),
+    title: z.string().nullable().optional(), updatedAt: z.string().nullable().optional(),
+  }).passthrough()),
+  nextCursor: z.string().nullable().optional(),
+}).passthrough();
 
 type RequestId = string | number | null;
 type HistoryReader = typeof readDshHistory;
@@ -16,24 +23,44 @@ type HistoryReader = typeof readDshHistory;
 export class DshAcpCompatibility {
   private readonly initializations = new Set<RequestId>();
   private readonly loads = new Map<RequestId, z.infer<typeof loadSchema>>();
+  private readonly prompts = new Map<RequestId, string>();
+  private readonly toolCalls = new Map<string, Record<string, unknown>>();
+  private readonly lists = new Map<RequestId, {
+    params: Record<string, unknown>;
+    sessions: z.infer<typeof listSchema>["sessions"];
+    cursors: Set<string>;
+    sessionIds: Set<string>;
+  }>();
   private resumeOnly = false;
   private readonly env: NodeJS.ProcessEnv;
   private readonly replay: boolean;
   private readonly readHistory: HistoryReader;
+  private readonly sendToAgent?: (message: AcpStreamMessage) => Promise<void>;
 
   constructor(
     env: NodeJS.ProcessEnv,
     replay: boolean,
     readHistory: HistoryReader = readDshHistory,
+    sendToAgent?: (message: AcpStreamMessage) => Promise<void>,
   ) {
     this.env = env;
     this.replay = replay;
     this.readHistory = readHistory;
+    this.sendToAgent = sendToAgent;
   }
 
   toAgent(message: AcpStreamMessage): AcpStreamMessage {
     if (!("method" in message) || !("id" in message)) return message;
     if (message.method === "initialize") this.initializations.add(message.id);
+    if (message.method === "session/list") {
+      const params = z.record(z.string(), z.unknown()).parse(message.params ?? {});
+      this.lists.set(message.id, {
+        params, sessions: [], cursors: new Set(), sessionIds: new Set(),
+      });
+    }
+    if (message.method === "session/prompt") {
+      this.prompts.set(message.id, z.object({ sessionId: z.string() }).parse(message.params).sessionId);
+    }
     if (message.method === "session/load" && this.resumeOnly) {
       this.loads.set(message.id, loadSchema.parse(message.params));
       return { ...message, method: "session/resume" };
@@ -42,6 +69,32 @@ export class DshAcpCompatibility {
   }
 
   async fromAgent(message: AcpStreamMessage): Promise<AcpStreamMessage[]> {
+    if ("method" in message && message.method === "session/update") {
+      const { update } = z.object({
+        update: z.object({ sessionUpdate: z.string() }).passthrough(),
+      }).parse(message.params);
+      if (update.sessionUpdate === "tool_call") {
+        this.toolCalls.set(z.string().parse(update.toolCallId), update);
+      } else if (update.sessionUpdate === "tool_call_update" &&
+                 ["completed", "failed"].includes(String(update.status))) {
+        this.toolCalls.delete(z.string().parse(update.toolCallId));
+      }
+    }
+    if ("method" in message && message.method === "session/request_permission") {
+      const params = z.object({
+        toolCall: z.object({ toolCallId: z.string() }).passthrough(),
+      }).passthrough().parse(message.params);
+      const current = this.toolCalls.get(params.toolCall.toolCallId);
+      // DSH sends only the call ID here; the shim rejects undefined rawInput.
+      return [{ ...message, params: {
+        ...params,
+        toolCall: {
+          ...params.toolCall,
+          title: params.toolCall.title ?? current?.title,
+          rawInput: params.toolCall.rawInput ?? current?.rawInput ?? null,
+        },
+      } }];
+    }
     if (!("id" in message) || "method" in message) return [message];
     if (this.initializations.delete(message.id) && "result" in message) {
       const result = initializeSchema.parse(message.result);
@@ -52,6 +105,55 @@ export class DshAcpCompatibility {
           ...message,
           result: { ...result, agentCapabilities: { ...result.agentCapabilities, loadSession: true } },
         }];
+      }
+    }
+    const list = this.lists.get(message.id);
+    if (list) {
+      if ("error" in message) {
+        this.lists.delete(message.id);
+        return [message];
+      }
+      if ("result" in message) {
+        try {
+          const page = listSchema.parse(message.result);
+          for (const session of page.sessions) {
+            if (list.sessionIds.has(session.sessionId)) continue;
+            list.sessionIds.add(session.sessionId);
+            list.sessions.push(session);
+          }
+          if (page.nextCursor) {
+            if (list.cursors.has(page.nextCursor)) throw new Error("DSH session list repeated a pagination cursor");
+            if (!this.sendToAgent) throw new Error("DSH session pagination transport is unavailable");
+            list.cursors.add(page.nextCursor);
+            await this.sendToAgent({
+              jsonrpc: "2.0", id: message.id, method: "session/list",
+              params: { ...list.params, cursor: page.nextCursor },
+            });
+            return [];
+          }
+          this.lists.delete(message.id);
+          return [{ ...message, result: { ...page, sessions: list.sessions, nextCursor: null } }];
+        } catch (error) {
+          this.lists.delete(message.id);
+          return [{
+            jsonrpc: "2.0", id: message.id,
+            error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+          }];
+        }
+      }
+    }
+    const promptSession = this.prompts.get(message.id);
+    this.prompts.delete(message.id);
+    if (promptSession && "result" in message) {
+      const response = z.object({ stopReason: z.string() }).parse(message.result);
+      if (["max_tokens", "max_turn_requests", "refusal"].includes(response.stopReason)) {
+        return [{
+          jsonrpc: "2.0", method: historyItemMethod,
+          params: {
+            type: "notification", id: `dsh-stop:${promptSession}:${message.id}`,
+            level: "warning", message: `DSH stopped with ${response.stopReason}; this does not establish that the task is complete.`,
+          },
+        }, message];
       }
     }
     const identity = this.loads.get(message.id);

@@ -70,6 +70,35 @@ test("missing records, foreign sessions and unsupported format versions fail rat
   assert.throws(() => projectHistory(jsonl([header]).trimEnd(), sessionId), /incomplete/);
 });
 
+test("ended or interrupted tools are not left running in restored history, and output limits remain visible", () => {
+  for (const kind of ["interrupted", "error", "max-tokens"]) {
+    const records = [
+      { type: "tool/call", seq: 0, data: { callId: "call", name: "test", arguments: "{}" } },
+      { type: "turn/end", seq: 1, data: { reason: { kind } } },
+    ];
+    const projected = projectHistory(jsonl([header, ...records]), sessionId);
+    const last = projected.at(-1);
+    assert.ok(last && "params" in last);
+    assert.deepEqual(last.params, {
+      type: "tool_call", id: "call", callId: "call", name: "test",
+      detail: { type: "unknown", input: {}, output: null },
+      status: kind === "interrupted" ? "canceled" : "failed",
+      error: kind === "interrupted" ? null : "Tool outcome unavailable in the persisted DSH turn",
+    });
+    if (kind === "max-tokens") assert.ok(JSON.stringify(projected).includes("max-tokens"));
+  }
+});
+
+test("non-text attachments have visible placeholders without reading or claiming to replay media", () => {
+  const rows = [
+    { type: "user/message", seq: 0, data: {
+      id: "image", source: { kind: "user" }, content: [{ type: "image", attachmentId: "opaque" }],
+    } },
+  ];
+  assert.ok(JSON.stringify(projectHistory(jsonl([header, ...rows]), sessionId))
+    .includes("[image attachment retained in DSH session]"));
+});
+
 test("read-only restoration finds the existing file, validates cwd, and leaves its contents unchanged", async () => {
   const root = await mkdtemp(join(tmpdir(), "dsh-history-test-"));
   try {

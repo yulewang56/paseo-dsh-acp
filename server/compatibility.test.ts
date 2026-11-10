@@ -73,6 +73,69 @@ test("native load support and agents without either capability are not rewritten
       jsonrpc: "2.0", id: 1,
       result: { protocolVersion: 1, agentCapabilities: capabilities, authMethods: [] },
     });
+
     assert.deepEqual(bridge.toAgent(load), load);
   }
+});
+
+test("pagination preserves cwd and metadata, deduplicates entries and fails on a repeated cursor", async () => {
+  const forwarded: AcpStreamMessage[] = [];
+  const bridge = new DshAcpCompatibility({}, false, undefined, async (message) => { forwarded.push(message); });
+  bridge.toAgent({
+    jsonrpc: "2.0", id: 8, method: "session/list", params: { cwd: "/project", _meta: { kept: true } },
+  });
+  const first: AcpStreamMessage = { jsonrpc: "2.0", id: 8, result: {
+    sessions: [{ sessionId, cwd: "/project" }], nextCursor: "page2",
+  } };
+  assert.deepEqual(await bridge.fromAgent(first), []);
+  assert.deepEqual(forwarded, [{
+    jsonrpc: "2.0", id: 8, method: "session/list",
+    params: { cwd: "/project", _meta: { kept: true }, cursor: "page2" },
+  }]);
+  const [failed] = await bridge.fromAgent(first);
+  assert.ok("error" in failed);
+  assert.match(failed.error.message, /repeated a pagination cursor/);
+});
+
+test("pagination returns all distinct sessions, and a later page error never becomes partial success", async () => {
+  const bridge = new DshAcpCompatibility({}, false, undefined, async () => {});
+  const begin = (id: number) => bridge.toAgent({ jsonrpc: "2.0", id, method: "session/list" });
+  const page = (id: number): AcpStreamMessage => ({ jsonrpc: "2.0", id, result: {
+    sessions: [{ sessionId, cwd: "/project" }], nextCursor: "next",
+  } });
+  begin(10);
+  await bridge.fromAgent(page(10));
+  const [result] = await bridge.fromAgent({ jsonrpc: "2.0", id: 10, result: {
+    sessions: [{ sessionId, cwd: "/project" }, { sessionId: "older", cwd: "/project" }],
+  } });
+  assert.deepEqual(result, { jsonrpc: "2.0", id: 10, result: {
+    sessions: [{ sessionId, cwd: "/project" }, { sessionId: "older", cwd: "/project" }], nextCursor: null,
+  } });
+  begin(11);
+  await bridge.fromAgent(page(11));
+  const error: AcpStreamMessage = {
+    jsonrpc: "2.0", id: 11, error: { code: -32603, message: "storage unavailable" },
+  };
+  assert.deepEqual(await bridge.fromAgent(error), [error]);
+});
+
+test("DSH ID-only permission requests acquire tool context without inventing tool arguments", async () => {
+  const bridge = new DshAcpCompatibility({}, false);
+  const request: AcpStreamMessage = {
+    jsonrpc: "2.0", id: "permission", method: "session/request_permission",
+    params: { sessionId, toolCall: { toolCallId: "call" }, options: [] },
+  };
+  assert.deepEqual(await bridge.fromAgent(request), [{
+    ...request, params: { sessionId, toolCall: { toolCallId: "call", title: undefined, rawInput: null }, options: [] },
+  }]);
+  await bridge.fromAgent({
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "tool_call", toolCallId: "call", title: "Read a file", rawInput: { path: "/file" },
+    } },
+  });
+  assert.deepEqual(await bridge.fromAgent(request), [{
+    ...request, params: { sessionId, toolCall: {
+      toolCallId: "call", title: "Read a file", rawInput: { path: "/file" },
+    }, options: [] },
+  }]);
 });

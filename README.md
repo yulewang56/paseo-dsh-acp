@@ -209,6 +209,27 @@ DSH 0.2.2-alpha.2 的官方 ACP 提供 `session/resume`，但没有
 升级只需在 DSH 任务空闲时更新/重载插件，然后重新打开原会话，不需重启 daemon，
 不需删除原会话，也不需更换模型配置。
 
+### 语义检查清单（1.2.0）
+
+以下按 DSH 0.2.2-alpha.2、Paseo 0.15.3 检查。修复留在插件中，不修改
+Paseo/DSH 安装包或用户模型配置。
+
+| 检查项 | 处理与验证 |
+|---|---|
+| 配置不能静默失效 | 非空 `systemPrompt`、`providerOptions`、通用 `settings`、预授权 `toolPolicy.preapproved`、`persist=false` 明确拒绝。系统指令请在 DSH 中配置，不降级成用户消息。MCP 支持 stdio/Streamable HTTP，拒绝 SSE 和相对可执行路径。 |
+| 取消与并发输入 | 不声明 `prompt.steer`。并发 `auto` 输入由标准 adapter 先中断旧回合再提交新输入；显式 `steer` 拒绝，不冒充无中断插话。真实 DSH 已验证取消后继续发送；协议测试覆盖并发替换及每回合只结束一次。 |
+| 权限审批 | 修复 DSH 审批只带调用 ID、adapter 却拒绝缺失 `rawInput` 的不匹配。使用已有调用信息补齐显示上下文；未知参数保留为空，不编造参数。单次允许/拒绝有协议测试；永久授权、改写工具输入、附加拒绝说明或一键拒绝并中断均明确拒绝。需要中断时另行停止 agent。未做桌面审批框的人工点击验证。 |
+| 模型与思考档位 | 保留不透明的 provider/model 组合 ID。真实 DSH 已遍历模型与思考选项、拒绝无效模型，并验证恢复。协议测试同时检查失败后不提交无效配置。配置切换不能改写已准备好的模型步骤。 |
+| 会话列表 | 遍历全部 `nextCursor`，保留 cwd、去重，循环 cursor 或后续页失败时报错，不返回伪装完整的部分列表；查询与 limit 在取齐后应用。真实 DSH 用每页 1 条的隔离存储验证跨页。 |
+| 回合结束与错误 | `max_tokens`、`max_turn_requests`、`refusal` 添加可见警告，不能把 completed 视作“业务任务成功”。API 错误、进程退出有失败路径测试。DSH 将部分内部结束原因折叠成 `end_turn` 时，插件无法从 ACP 响应猜回原始原因。 |
+| 历史、附件及能力声明 | 恢复后的未完成工具不再永久显示 running；保留失败/取消或未知结果。另修复 adapter 将没有错误详情的工具失败发成 `failed + error:null`、客户端无法解析的问题；显式说明详情缺失，不伪造错误原因。附件类型占位已测试，不声称恢复媒体预览。撤销 `prompt.command` 声明，原生 slash command 请求明确拒绝，不再偷偷转成普通文本。 |
+
+`title` 仍可作为 Paseo 本地元数据保存，不代表设置了 DSH 原生会话标题。
+不声明原生 steering、持久权限策略、结构化输出、fork/rewind 或桌面专有模式。
+官方 ACP 输出是已提交消息，不是 token 级实时流；插件不伪造缺失的增量。
+模型是否可见图片取决于初始化时的路由能力和 DSH 对当前模型的再次检查；
+插件不提升图片能力声明，也不承诺换模型后图片入口即时更新。
+
 ### 官方 ACP 的其他限制
 
 遵循官方 ACP profile 的能力，不补齐桌面功能。当前已验证版本没有
@@ -223,6 +244,18 @@ npm run typecheck
 npm test
 paseo plugin reload dsh-acp
 ```
+
+默认测试使用本地 ACP 协议 fixture，不调用模型。启用真实 DSH 集成测试：
+
+```sh
+DSH_TEST_COMMAND=/absolute/path/to/dsh \
+DSH_TEST_MODEL='["your-route","your-model"]' npm test
+```
+
+使用满足 DSH 要求的 Node 运行测试。真实测试复用 ACP profile 的模型凭据，
+以临时 overlay 将会话 root 隔离到测试目录；不修改用户 profile 或会话。
+会发出最小模型请求（取消验证和一个短回复），可能产生少量费用；临时目录
+在关闭进程后清理。权限、输出上限、进程故障等确定性分支由协议 fixture 覆盖。
 
 黑白 SVG 来自官方 DSH Web frontend 的 favicon，仅将 fill 改为 `currentColor`。
 保留了 DeepSeek 的 MIT 版权声明；商标归各自所有者所有。本项目不是 DeepSeek

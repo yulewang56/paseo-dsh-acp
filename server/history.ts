@@ -115,6 +115,14 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
       }
     }
   };
+  const finishTools = (cancelled: boolean) => {
+    for (const call of tools.values()) {
+      append(cancelled
+        ? { ...call, status: "canceled", error: null }
+        : { ...call, status: "failed", error: "Tool outcome unavailable in the persisted DSH turn" });
+    }
+    tools.clear();
+  };
   for (let index = 1; index < lines.length; index++) {
     const event = eventSchema.parse(JSON.parse(lines[index]));
     if (event.seq !== index - 1) throw new Error("DSH history is not contiguous");
@@ -156,6 +164,7 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
           ? { status: "failed", error: text }
           : { status: "completed", error: null }),
       });
+      tools.delete(result.toolCallId);
     } else if (event.type === "turn/end") {
       const reason = z.object({
         kind: z.string(), error: z.object({ message: z.string() }).optional(),
@@ -163,8 +172,16 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
       if (reason.kind === "error" && reason.error) {
         append({ type: "error", id: `dsh-error:${sessionId}:${event.seq}`, message: reason.error.message });
       }
+      if (["max-tokens", "blocked"].includes(reason.kind)) {
+        append({
+          type: "notification", id: `dsh-stop:${sessionId}:${event.seq}`,
+          level: "warning", message: `DSH turn ended with ${reason.kind}; this does not establish that the task is complete.`,
+        });
+      }
+      finishTools(["aborted", "interrupted"].includes(reason.kind));
     }
   }
+  finishTools(false);
   return messages;
 }
 
