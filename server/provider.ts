@@ -97,7 +97,7 @@ function connectDsh(launch: ProviderLaunch, context?: OpenContext): AcpStream {
 
 export function createDshProvider(): ProviderRegistration {
   return {
-    id: "dsh",
+    id: "deepseek",
     label: "DeepSeek Harness",
     description: "Official DeepSeek Harness ACP profile with session resume and history",
     icon: "icon.svg",
@@ -111,7 +111,7 @@ export function createDshProvider(): ProviderRegistration {
         )),
       };
       const provider = runAcpProvider({
-        id: "dsh",
+        id: "deepseek",
         label: "DeepSeek Harness",
         connector: () => connectDsh(launch, context.getStore()),
         transformers: [{

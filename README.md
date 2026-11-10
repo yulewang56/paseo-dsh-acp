@@ -1,7 +1,7 @@
 # DeepSeek Harness ACP for Paseo
 
 把**官方 DSH ACP profile**接入 Paseo，加上随深浅主题变色的黑白 DeepSeek 图标。
-provider ID 为 `dsh`。本插件复用 Paseo 自带的 `runAcpProvider`，补充官方 DSH
+provider ID 为 `deepseek`。本插件复用 Paseo 自带的 `runAcpProvider`，补充官方 DSH
 ACP 的会话恢复与本地历史回放兼容层，没有自定义 agent 循环或模型代理，
 也不依赖 DSH Desktop。
 
@@ -12,6 +12,31 @@ ACP 的会话恢复与本地历史回放兼容层，没有自定义 agent 循环
   → dsh --profile acp
   → DSH 配置的模型 API
 ```
+
+## 1.3.0 破坏性变更：provider ID
+
+provider ID 从 `dsh` 改为 `deepseek`，让按厂商名匹配的第三方界面（如
+Better-Paseo）正确显示 DeepSeek 图标。插件 ID 仍是 `dsh-acp`，CLI 命令仍是
+`dsh --profile acp`；没有保留旧 provider 别名。
+
+升级前请先结束所有 DSH 任务，并备份 daemon host 的 `~/.paseo/config.json`。
+将 `agents.providers.dsh` 的完整对象（含 command/env 等覆盖项）复制到
+`agents.providers.deepseek`，再移除旧 `dsh` 项；如已有 `deepseek` 配置，
+请先核对合并，不要直接覆盖。然后更新插件源，在确认可中断旧会话后执行：
+
+```sh
+paseo reload --json
+paseo plugin reload dsh-acp
+paseo provider diagnostic deepseek --json
+```
+
+插件重载会终止旧 provider 的运行进程，即使保留相同 provider ID 也不能视为无中断。
+旧 agent 的 `provider` 和 persistence 仍为 `dsh`，升级后**无法恢复**；
+本插件不会改写旧 agent 记录，也不会删除 DSH 原会话文件。升级后请新建
+`deepseek` agent。需要恢复旧 agent 时，须先回退插件源和配置备份，再重载。
+
+若未来 Paseo 内置 `deepseek` provider，本插件可能因同名冲突而注册失败，
+届时需要改用 `deepseek-harness` 等更具体的 ID，并再次安排迁移。
 
 ## 在其他 host 安装
 
@@ -50,7 +75,7 @@ npm 默认源或企业镜像的 `latest` 可能不同；需要复现时可使用
 gh auth setup-git
 paseo plugin add git:yulewang56/paseo-dsh-acp
 paseo plugin ls
-paseo provider diagnostic dsh --json
+paseo provider diagnostic deepseek --json
 ```
 
 如果 Git 安装不可用，也可使用目录源：
@@ -72,7 +97,7 @@ paseo plugin install /absolute/path/to/paseo-dsh-acp
 {
   "agents": {
     "providers": {
-      "dsh": {
+      "deepseek": {
         "enabled": true,
         "command": ["/absolute/path/to/dsh", "--profile", "acp"]
       }
@@ -89,12 +114,13 @@ Windows 可填实际 `dsh.cmd` 路径；插件使用 Paseo 标准 ACP 启动器�
 ["/absolute/path/to/compatible/node", "/absolute/path/to/dsh/lib/bin.js", "--profile", "acp"]
 ```
 
-若从旧的 config-only ACP 注册迁移，保留 `dsh` 下的 command/env 等覆盖项，
-但移除 `"extends": "acp"`；现在由本插件注册同一个 provider ID。
+若从旧的 config-only ACP 注册迁移，将原 provider 下的 command/env 等覆盖项
+迁至 `deepseek`，但移除 `"extends": "acp"`；现在由本插件注册 provider。
+旧 agent 不会因此自动迁移，限制见顶部的 1.3.0 迁移说明。
 
 ```sh
 paseo reload --json
-paseo provider diagnostic dsh --json
+paseo provider diagnostic deepseek --json
 ```
 
 不需要重启 daemon。插件更新/重载可能影响它所管理的 DSH 会话，请先让任务结束。
@@ -154,10 +180,10 @@ ACP profile 默认关闭 HMR，修改后应在空闲时重新打开/重新加载
 完成后：
 
 ```sh
-paseo provider diagnostic dsh --json
+paseo provider diagnostic deepseek --json
 ```
 
-再在 Paseo 中选择 `dsh` 和网关模型，发送一个最小请求验证实际鉴权、工具调用
+再在 Paseo 中选择 `deepseek` 和网关模型，发送一个最小请求验证实际鉴权、工具调用
 及网络连通性。诊断 Ready/模型列表可见不代表推理请求已经验证。
 
 ### 可选的网关兼容参数
@@ -206,8 +232,9 @@ DSH 0.2.2-alpha.2 的官方 ACP 提供 `session/resume`，但没有
 `session.v4.jsonl`，不改写或删除这些文件。其他存储后端尚不支持历史回放。
 历史非文本附件显示类型占位，原附件仍由 DSH 保存，不声称已恢复图片预览。
 
-升级只需在 DSH 任务空闲时更新/重载插件，然后重新打开原会话，不需重启 daemon，
-不需删除原会话，也不需更换模型配置。
+同一 provider ID 下的历史兼容修复，只需在 DSH 任务空闲时更新/重载插件后
+重新打开原会话，不需重启 daemon、删除原会话或更换模型配置。
+从 `dsh` 升级至 1.3.0 的 `deepseek` 不适用此恢复路径，须遵循顶部的迁移说明。
 
 ### 语义检查清单（1.2.1）
 
