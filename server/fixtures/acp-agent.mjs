@@ -47,12 +47,16 @@ lines.on("line", (line) => {
       break;
     case "session/new":
       reply(id, { sessionId, configOptions: options() });
+      update({ sessionUpdate: "available_commands_update",
+        availableCommands: [{ name: "fixture-skill", description: "Fixture skill" }] });
       break;
     case "session/close":
       reply(id, {});
       break;
     case "session/resume":
       reply(id, { sessionId, configOptions: options() });
+      update({ sessionUpdate: "available_commands_update",
+        availableCommands: [{ name: "fixture-skill", description: "Fixture skill" }] });
       break;
     case "session/list":
       reply(id, params.cursor

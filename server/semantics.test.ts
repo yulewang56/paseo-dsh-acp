@@ -41,7 +41,6 @@ test("unsupported prompt and configuration semantics are not downgraded into ord
   };
   for (const patch of [
     { delivery: "steer" as const },
-    { input: { type: "command" as const, name: "plan", arguments: "" } },
     { outputSchema: {} }, { clearPendingPermissions: true },
   ]) {
     assert.throws(() => validateDshInput({
@@ -110,10 +109,22 @@ test("only auto_accept is accepted as a plugin option", () => {
   }), /only auto_accept/);
   assert.doesNotThrow(() => validateDshInput({
     type: "session.configure", requestId: "change", sessionId: "session",
-    changes: { settings: { auto_accept: true } },
+    changes: { providerOptions: { auto_accept: true } },
+  }));
+  assert.doesNotThrow(() => validateDshInput({
+    type: "session.configure", requestId: "change", sessionId: "session",
+    changes: { providerOptions: { auto_accept: null } },
+  }));
+  assert.doesNotThrow(() => validateDshInput({
+    type: "session.configure", requestId: "change", sessionId: "session",
+    changes: { settings: { auto_accept: true }, providerOptions: { auto_accept: true } },
   }));
   assert.throws(() => validateDshInput({
     type: "session.configure", requestId: "change", sessionId: "session",
     changes: { settings: { other: true } },
+  }), /only auto_accept/);
+  assert.throws(() => validateDshInput({
+    type: "session.configure", requestId: "change", sessionId: "session",
+    changes: { providerOptions: { other: true } },
   }), /only auto_accept/);
 });

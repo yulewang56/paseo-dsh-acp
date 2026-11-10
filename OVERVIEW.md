@@ -25,6 +25,12 @@ If Paseo adds a built-in `deepseek` provider, the ID may conflict and require
 another migration to a more specific ID such as `deepseek-harness`.
 
 Unsupported Paseo launch settings and permission mutations are rejected explicitly.
-Only one-shot approval decisions are supported. Native slash commands and
+Only one-shot approval decisions are supported. Non-skill native commands and
 non-interrupting steering are not advertised. Session listing follows all cursor
 pages, and output limits produce a visible warning instead of implying task success.
+
+Auto Accept approves individual DSH requests without disabling the sandbox.
+The choice is saved locally per DSH session. A temporary ACP wrapper exposes DSH's
+user-invocable Skills in Paseo's slash menu after a session opens, including Paseo
+skills in `~/.agents/skills`. Discovery uses the native scoped registry and updates
+as it changes. Additional DSH skill packages are not installed.

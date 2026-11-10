@@ -3,7 +3,7 @@
 [English](README.en.md) | 中文
 
 把**官方 DSH ACP profile**接入 Paseo。provider ID 为 `deepseek`。插件复用 Paseo
-的 `runAcpProvider`，只补充会话恢复与本地历史回放；没有自定义 agent 循环，不代理
+的 `runAcpProvider`，补充会话恢复、本地历史回放、自动批准和 Skills 菜单；没有自定义 agent 循环，不代理
 模型请求，不依赖 DSH Desktop。
 
 ```text
@@ -160,7 +160,7 @@ meter 不会空白等待下一轮。
 
 | 方面 | 行为 |
 |---|---|
-| 配置 | 拒绝非空 `systemPrompt`、`providerOptions`、通用 `settings`、`toolPolicy.preapproved`、`persist=false`；MCP 仅 stdio/Streamable HTTP。 |
+| 配置 | 仅接受插件选项 `auto_accept`；拒绝非空 `systemPrompt`、未知选项、`toolPolicy.preapproved`、`persist=false`；MCP 仅 stdio/Streamable HTTP。 |
 | 取消/并发 | 不声明 `prompt.steer`；并发 `auto` 先中断旧回合，显式 `steer` 拒绝；取消只结束当前回合一次。 |
 | 权限 | 仅单次允许/拒绝；补齐 DSH 缺失的工具上下文，不编造参数；拒绝持久授权、改写输入、拒绝说明和拒绝并中断。 |
 | 模型档位 | 保留不透明 ID；无效选择不提交，不污染当前配置。 |
@@ -178,6 +178,10 @@ DSH 的审批只有单次允许/拒绝，没有“始终允许”。插件在 co
 `Auto Accept` 开关：开启后插件直接以 `allow-once` 应答
 `session/request_permission` 并在时间线留下 info 记录；沙箱仍然生效，越界写仍会
 先被拒绝再升级。
+
+设置按 DSH 会话保存到 `$DSH_HOME/paseo-acp-options`（默认 `~/.dsh` 下）；
+配置 `DSH_ACP_SESSION_ROOT` 时保存到该目录下的 `paseo-options`，保存失败会报错。
+开关在建立会话后可用，尚未建立会话的草稿不显示。
 
 DSH 的沙箱档位由启动环境决定（默认 `workspace-write`）：
 
@@ -201,6 +205,27 @@ DSH 的沙箱档位由启动环境决定（默认 `workspace-write`）：
 也不暴露 DSH 的 `/permission`。设计与迁移计划见
 [ADR 0001](docs/adr/0001-permissions-and-options.md)。
 
+### Skills
+
+DSH ACP 自带原生 `skill` 工具和 Skills 发现，不需要插件复制或注入指令。
+默认扫描项目的 `.dsh/skills`、`.agents/skills`，以及用户的
+`~/.dsh/skills`、`~/.agents/skills`。注意是 **`.agents`（复数）**，
+不是 `.agent`。Paseo 安装的编排 Skills 就在 `~/.agents/skills`；
+只安装在 `~/.claude/skills` 的其他 Skills 不在 DSH 默认扫描范围内。
+`DSH_AGENTS_HOME` 可覆盖共享用户目录，`DSH_HOME` 可覆盖 DSH 目录；
+自定义路径还可以通过 DSH 的 `skill-filesystem.customSkillDirs` 配置。
+
+**建立 DeepSeek 会话后，在输入框键入 `/` 即可选择已发现的 Skills**，例如 `/paseo`。
+也可以在聊天中要求“使用 paseo skill”，或直接发送 `/paseo ...` 文本。
+选择菜单条目会把名称和参数交给 DSH 的原生 Skills 调用解析器，不会自行拼接技能正文。
+
+菜单只列出允许用户调用的 Skills，随发现结果更新；发现不完整或失败会明确提示。
+尚未建立会话的草稿不显示 Skills 菜单。
+
+插件不额外安装 DSH 的 Office 等 Skills 包。ACP 默认启用的是文件系统 Skills
+和原生加载工具；其他 DSH Skills 是否存在，取决于 ACP profile 启用的包以及本地
+Skills 目录，不能从 DSH Desktop 的菜单推断。
+
 ### 其他
 
 已验证版本没有 Standard/PTC/Minimal/Creator preset、原生 Plan 审批卡片等桌面功能；
@@ -214,7 +239,8 @@ npm run typecheck
 npm test        # fixture，不调用模型
 ```
 
-真实 DSH 集成测试（读取 `~/.dsh`，需允许 `dsh` 写 profile；会发两次最小模型请求）：
+真实 DSH 集成测试（读取 `~/.dsh`，需允许 `dsh` 写 profile；会调用模型验证取消、
+最小回复及两个临时 Skills 的发现和加载）：
 
 ```sh
 DSH_TEST_COMMAND=/absolute/path/to/dsh \

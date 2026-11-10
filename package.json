@@ -19,7 +19,8 @@
     "examples/",
     "icon.svg",
     "index.server.ts",
-    "server/"
+    "server/",
+    "shared/"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",

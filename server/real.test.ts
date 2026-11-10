@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { ProviderEvent, ProviderInput } from "@getpaseo/plugin/server/provider";
 import { createDshProvider } from "./provider.ts";
 
-test("official DSH: pagination, opaque model choices, cancel, next prompt and same-session replay", {
+test("official DSH: pagination, model choices, options, skills, cancel and same-session replay", {
   skip: !process.env.DSH_TEST_COMMAND || !process.env.DSH_TEST_MODEL,
   timeout: 120000,
 }, async () => {
@@ -18,6 +18,23 @@ test("official DSH: pagination, opaque model choices, cancel, next prompt and sa
   const directory = await mkdtemp(join(tmpdir(), "dsh-semantic-test-"));
   const patch = join(directory, "overlay.json");
   const sessionRoot = join(directory, "sessions");
+  const agentsHome = join(directory, "shared-agents");
+  for (const [root, name] of [
+    [join(directory, ".agents"), "dsh-fixture-project"],
+    [agentsHome, "dsh-fixture-user"],
+    [agentsHome, "dsh-fixture-model-only"],
+  ]) {
+    const skill = join(root, "skills", name);
+    await mkdir(skill, { recursive: true });
+    await writeFile(join(skill, "SKILL.md"), `---
+name: ${name}
+description: Test skill for validating DSH ACP skill discovery. Load when explicitly requested.
+user-invocable: ${name !== "dsh-fixture-model-only"}
+---
+This test skill requires no actions. Continue with the user's requested reply.
+${name === "dsh-fixture-project" ? "Always include DSH_PROJECT_COMMAND_OK in your final reply." : ""}
+`);
+  }
   await writeFile(patch, JSON.stringify([{
     id: "acp", config: { provider: selected[0], model: selected[1], sessionListPageSize: 1 },
   }, {
@@ -31,7 +48,7 @@ test("official DSH: pagination, opaque model choices, cancel, next prompt and sa
       command, args: ["--profile", "acp", "--patch", patch],
       env: { ...Object.fromEntries(Object.entries(process.env).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,
-      )), DSH_ACP_SESSION_ROOT: sessionRoot },
+      )), DSH_ACP_SESSION_ROOT: sessionRoot, DSH_AGENTS_HOME: agentsHome },
     },
   }).catch(async (error: unknown) => {
     await rm(directory, { recursive: true, force: true });
@@ -63,7 +80,7 @@ test("official DSH: pagination, opaque model choices, cancel, next prompt and sa
   const baseConfig = { cwd: directory, env: {}, mcpServers: {}, settings: {}, persist: true };
   try {
     assert.ok(!connection.capabilities.includes("prompt.steer"));
-    assert.ok(!connection.capabilities.includes("prompt.command"));
+    assert.ok(connection.capabilities.includes("prompt.command"));
     for (const id of ["seed-one", "seed-two"]) {
       await request({
         type: "session.open", requestId: `open:${id}`, sessionId: id,
@@ -82,8 +99,25 @@ test("official DSH: pagination, opaque model choices, cancel, next prompt and sa
     const opened = events.find((event) => event.type === "session.opened" && event.sessionId === "real");
     assert.ok(opened?.type === "session.opened" && opened.persistence);
     const persistence = opened.persistence;
+    const commands = events.filter((event) => event.type === "session.commands" && event.sessionId === "real").at(-1);
+    assert.ok(commands?.type === "session.commands");
+    assert.ok(commands.commands.some((command) => command.name === "dsh-fixture-project"));
+    assert.ok(commands.commands.some((command) => command.name === "dsh-fixture-user"));
+    assert.ok(!commands.commands.some((command) => command.name === "dsh-fixture-model-only"));
     const state = events.filter((event) => event.type === "session.config").at(-1)?.config;
     assert.ok(state);
+    assert.ok(state.controls?.some((control) => control.type === "toggle" && control.key === "auto_accept"));
+    assert.equal(state.providerOptions?.auto_accept, false);
+    await request({
+      type: "session.configure", requestId: "auto-on", sessionId: "real",
+      changes: { providerOptions: { auto_accept: true } },
+    });
+    assert.equal(events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, true);
+    await request({
+      type: "session.configure", requestId: "auto-reset", sessionId: "real",
+      changes: { providerOptions: { auto_accept: null } },
+    });
+    assert.equal(events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, false);
     for (const model of state.models) {
       await request({
         type: "session.configure", requestId: `model:${model.id}`, sessionId: "real",
@@ -126,15 +160,26 @@ test("official DSH: pagination, opaque model choices, cancel, next prompt and sa
     await connection.send({
       type: "session.prompt", sessionId: "real", prompt: {
         clientMessageId: "next", delivery: "auto",
-        input: { type: "message", content: [{
-          type: "text", text: "Do not use tools or change files. Only reply DSH_SEMANTICS_OK.",
-        }] },
+        input: { type: "command", name: "dsh-fixture-project",
+          arguments: "Load dsh-fixture-user using the skill tool. Do not use any other tools or change files. " +
+            "Reply DSH_SEMANTICS_OK and follow the current skill's final reply instructions." },
       },
     });
     const terminal = await completed;
     assert.ok(terminal.type === "session.turn" && terminal.state === "completed");
     assert.ok(events.some((event) => event.type === "timeline.item" &&
       event.item.type === "assistant_message" && event.item.text.includes("DSH_SEMANTICS_OK")));
+    assert.ok(events.some((event) => event.type === "timeline.item" &&
+      event.item.type === "assistant_message" && event.item.text.includes("DSH_PROJECT_COMMAND_OK")));
+    for (const name of ["dsh-fixture-user"]) {
+      assert.ok(events.some((event) => {
+        if (event.type !== "timeline.item" || event.item.type !== "tool_call" ||
+            event.item.name !== "skill" || event.item.status !== "completed" ||
+            event.item.detail.type !== "unknown") return false;
+        const input = event.item.detail.input;
+        return input !== null && typeof input === "object" && !Array.isArray(input) && input.name === name;
+      }), `DSH must discover and load ${name} through its native skill tool`);
+    }
     await request({ type: "session.close", requestId: "close", sessionId: "real" });
     const offset = events.length;
     await request({
@@ -146,10 +191,13 @@ test("official DSH: pagination, opaque model choices, cancel, next prompt and sa
       JSON.stringify(event.persistence) === JSON.stringify(persistence)));
     assert.ok(replay.some((event) => event.type === "timeline.item" &&
       event.item.type === "assistant_message" && event.item.text.includes("DSH_SEMANTICS_OK")));
+    assert.ok(replay.some((event) => event.type === "session.commands" &&
+      event.commands.some((command) => command.name === "dsh-fixture-project")));
     console.log(JSON.stringify({
       officialDsh: true, pagesTraversed: listed.sessions.length,
       modelsVerified: state.models.length, reasoningOptionsVerified: choices.length,
       cancellationAndNextPrompt: true, restoredSameSessionWithHistory: true,
+      projectAndUserSkillsLoaded: true, nativeSkillCommandsVerified: true, composerOptionsVerified: true,
     }));
   } finally {
     await connection.close();

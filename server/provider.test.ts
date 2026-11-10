@@ -6,11 +6,13 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { setImmediate } from "node:timers/promises";
 import type { ProviderEvent, ProviderInput } from "@getpaseo/plugin/server/provider";
+import { ProviderEventSchema, ProviderInputSchema } from "@getpaseo/plugin/server/provider";
 import { createDshProvider } from "./provider.ts";
 
 const sessionId = "11111111-2222-4333-8444-555555555555";
 
 async function harness() {
+  const directory = await mkdtemp(join(tmpdir(), "dsh-provider-options-"));
   const provider = createDshProvider();
   const connection = await provider.connect({
     versions: [1],
@@ -18,11 +20,15 @@ async function harness() {
       "session.configure", "session.persistence", "session.list", "permission", "permission.tool_policy"],
     launch: {
       command: process.execPath, args: [fileURLToPath(new URL("./fixtures/acp-agent.mjs", import.meta.url))],
-      env: Object.fromEntries(Object.entries(process.env).filter(
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,
-      )),
+      )), DSH_ACP_SESSION_ROOT: directory },
     },
   });
+  const close = connection.close.bind(connection);
+  connection.close = async () => {
+    try { await close(); } finally { await rm(directory, { recursive: true, force: true }); }
+  };
   const events: ProviderEvent[] = [];
   connection.onEvent((event) => events.push(event));
   const wait = (predicate: (event: ProviderEvent) => boolean) => new Promise<ProviderEvent>((resolve, reject) => {
@@ -52,17 +58,17 @@ async function harness() {
     type: "session.open", requestId: "open", sessionId: "boundary", history: "skip",
     config: { cwd: "/project", env: {}, mcpServers: {}, settings: {}, persist: true },
   });
-  const openWith = (settings: { auto_accept?: boolean }) => request({
+  const openWith = (providerOptions: { auto_accept?: boolean | null }) => request({
     type: "session.open", requestId: "open", sessionId: "boundary", history: "skip",
-    config: { cwd: "/project", env: {}, mcpServers: {}, settings, persist: true },
+    config: { cwd: "/project", env: {}, mcpServers: {}, settings: {}, providerOptions, persist: true },
   });
-  return { connection, events, wait, request, prompt, open, openWith };
+  return { provider, connection, events, wait, request, prompt, open, openWith };
 }
 
 test("capabilities, cursor pagination, query and limit are truthful at the provider boundary", async () => {
   const h = await harness();
   try {
-    assert.ok(!h.connection.capabilities.includes("prompt.command"));
+    assert.ok(h.connection.capabilities.includes("prompt.command"));
     assert.ok(!h.connection.capabilities.includes("prompt.steer"));
     assert.ok(!h.connection.capabilities.includes("permission.tool_policy"));
     const result = await h.request({
@@ -74,10 +80,56 @@ test("capabilities, cursor pagination, query and limit are truthful at the provi
     assert.deepEqual(result.sessions[0].persistence.data, { sessionId: "old" });
     await h.open();
     const opened = h.events.find((event) => event.type === "session.opened");
-    assert.ok(opened && !opened.capabilities.includes("prompt.command"));
+    assert.ok(opened?.capabilities.includes("prompt.command"));
   } finally { await h.connection.close(); }
 });
 
+test("only advertised skill commands are delivered as native slash invocations", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    assert.ok(h.events.some((event) => event.type === "session.commands" &&
+      event.commands.some((command) => command.name === "fixture-skill")));
+    const command = (name: string) => ({
+      type: "session.prompt" as const, sessionId: "boundary",
+      prompt: { clientMessageId: "skill", delivery: "auto" as const,
+        input: { type: "command" as const, name, arguments: "some arguments" } },
+    });
+    assert.throws(() => h.connection.send(command("unknown")), /Unknown DSH skill command/);
+    const completed = h.wait((event) => event.type === "session.turn" && event.state === "completed");
+    await h.connection.send(command("fixture-skill"));
+    await completed;
+    assert.ok(h.events.some((event) => event.type === "timeline.item" &&
+      event.item.type === "assistant_message" && event.item.text === "/fixture-skill some arguments"));
+  } finally { await h.connection.close(); }
+});
+
+test("the native settings control commits options and persists them across resume", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    await h.request({
+      type: "session.configure", requestId: "enable", sessionId: "boundary",
+      changes: { settings: { auto_accept: true } },
+    });
+    const persisted = h.events.find((event) => event.type === "session.opened");
+    assert.ok(persisted?.type === "session.opened" && persisted.persistence);
+    assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, true);
+    await h.request({ type: "session.close", requestId: "close", sessionId: "boundary" });
+    await h.request({
+      type: "session.open", requestId: "resume", sessionId: "boundary", history: "skip",
+      persistence: persisted.persistence,
+      config: { cwd: "/project", env: {}, mcpServers: {}, settings: {}, persist: true },
+    });
+    assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, true);
+    await h.request({
+      type: "session.configure", requestId: "disable", sessionId: "boundary",
+      changes: { settings: { auto_accept: false } },
+    });
+    assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config
+      .settings.find((setting) => setting.id === "auto_accept")?.value, false);
+  } finally { await h.connection.close(); }
+});
 test("cancel and concurrent auto input end the old turn exactly once and accept the next prompt", async () => {
   const h = await harness();
   try {
@@ -418,16 +470,18 @@ test("sending after close rejects instead of leaving a pending query", async () 
   await assert.rejects(h.connection.send({ type: "sessions", requestId: "late", cwd: "/project" }));
 });
 
-test("the Auto Accept setting approves permissions without a client prompt", async () => {
+test("the Auto Accept composer control reports its committed option and approves permissions", async () => {
   const h = await harness();
   try {
     await h.openWith({ auto_accept: true });
     const config = h.events.filter((event) => event.type === "session.config").at(-1);
     assert.ok(config?.type === "session.config");
-    assert.deepEqual(config.config.settings.find((setting) => setting.id === "auto_accept"), {
-      type: "toggle", id: "auto_accept", label: "Auto Accept",
-      description: "Automatically approve DSH permission requests.", value: true,
+    assert.deepEqual(config.config.controls?.find((control) => control.key === "auto_accept"), {
+      type: "toggle", key: "auto_accept", label: "Auto Accept",
+      description: "Auto accept permission prompts", icon: "ShieldCheck", defaultValue: false,
     });
+    assert.equal(config.config.providerOptions?.auto_accept, true);
+    assert.equal(config.config.settings.find((setting) => setting.id === "auto_accept")?.value, true);
     const completed = h.wait((event) => event.type === "session.turn" &&
       event.turnId === "acp:permission" && event.state === "completed");
     await h.prompt("permission", "permission");
@@ -446,11 +500,12 @@ test("Auto Accept can be toggled at runtime and off again", async () => {
     await h.open();
     await h.request({
       type: "session.configure", requestId: "auto-on", sessionId: "boundary",
-      changes: { settings: { auto_accept: true } },
+      changes: { providerOptions: { auto_accept: true } },
     });
+
     const enabled = h.events.filter((event) => event.type === "session.config").at(-1);
     assert.ok(enabled?.type === "session.config");
-    assert.equal(enabled.config.settings.find((setting) => setting.id === "auto_accept")?.value, true);
+    assert.equal(enabled.config.providerOptions?.auto_accept, true);
 
     const autoCompleted = h.wait((event) => event.type === "session.turn" &&
       event.turnId === "acp:permission" && event.state === "completed");
@@ -460,7 +515,7 @@ test("Auto Accept can be toggled at runtime and off again", async () => {
 
     await h.request({
       type: "session.configure", requestId: "auto-off", sessionId: "boundary",
-      changes: { settings: { auto_accept: false } },
+      changes: { providerOptions: { auto_accept: false } },
     });
     const asked = h.wait((event) => event.type === "session.permission");
     await h.prompt("permission", "permission");
@@ -472,5 +527,81 @@ test("Auto Accept can be toggled at runtime and off again", async () => {
       response: { behavior: "allow", selectedActionId: "allow-once" },
     });
     await completed;
+  } finally { await h.connection.close(); }
+});
+
+test("legacy settings publish exactly one native Auto Accept control with the committed value", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    for (const value of [true, false]) {
+      await h.request(ProviderInputSchema.parse({
+        type: "session.configure", requestId: `legacy:${value}`, sessionId: "boundary",
+        changes: { settings: { auto_accept: value } },
+      }));
+      const event = h.events.filter((event) => event.type === "session.config").at(-1);
+      assert.ok(event);
+      const wire = ProviderEventSchema.parse(event);
+      assert.ok(wire.type === "session.config");
+      assert.deepEqual(wire.config.settings.filter((setting) => setting.id === "auto_accept"), [{
+        type: "toggle", id: "auto_accept", label: "Auto Accept",
+        description: "Auto accept permission prompts", value,
+      }]);
+      assert.equal(event.config.providerOptions?.auto_accept, value);
+    }
+  } finally { await h.connection.close(); }
+});
+
+test("Auto Accept survives model snapshots, resets to false, and rejects patches to closed sessions", async () => {
+  const h = await harness();
+  try {
+    await h.openWith({ auto_accept: true });
+    await h.request({
+      type: "session.configure", requestId: "model", sessionId: "boundary",
+      changes: { model: '["fixture","beta"]' },
+    });
+    assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, true);
+    await h.request({
+      type: "session.configure", requestId: "reset", sessionId: "boundary",
+      changes: { providerOptions: { auto_accept: null } },
+    });
+    assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, false);
+    await h.request({ type: "session.close", requestId: "close", sessionId: "boundary" });
+    assert.throws(() => h.connection.send({
+      type: "session.configure", requestId: "late", sessionId: "boundary",
+      changes: { providerOptions: { auto_accept: true } },
+    }), /Unknown session/);
+  } finally { await h.connection.close(); }
+});
+
+test("a rejected model and option patch does not silently enable Auto Accept", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    const failed = await h.request({
+      type: "session.configure", requestId: "invalid-options", sessionId: "boundary",
+      changes: { model: '["fixture","missing"]', providerOptions: { auto_accept: true } },
+    });
+    assert.equal(failed.type, "request.failed");
+    assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config.providerOptions?.auto_accept, false);
+    const asked = h.wait((event) => event.type === "session.permission");
+    await h.prompt("permission", "permission");
+    const event = await asked;
+    assert.ok(event.type === "session.permission");
+    const completed = h.wait((event) => event.type === "session.turn" &&
+      event.turnId === "acp:permission" && event.state === "completed");
+    await h.connection.send({
+      type: "session.permission", sessionId: "boundary", permissionId: event.request.id,
+      response: { behavior: "deny", selectedActionId: "reject-once" },
+    });
+    await completed;
+    const changed = await h.request({
+      type: "session.configure", requestId: "valid-options", sessionId: "boundary",
+      changes: { model: '["fixture","beta"]', providerOptions: { auto_accept: true } },
+    });
+    assert.equal(changed.type, "request.completed");
+    const config = h.events.filter((event) => event.type === "session.config").at(-1)?.config;
+    assert.equal(config?.model, '["fixture","beta"]');
+    assert.equal(config?.providerOptions?.auto_accept, true);
   } finally { await h.connection.close(); }
 });

@@ -15,8 +15,9 @@ function validateOptions(options: Readonly<Record<string, unknown>> | undefined,
   for (const key of Object.keys(options ?? {})) {
     if (key !== AUTO_ACCEPT) unsupported(`${label} '${key}'; only auto_accept is supported`);
   }
-  if (options && AUTO_ACCEPT in options && typeof options[AUTO_ACCEPT] !== "boolean") {
-    throw new Error("DSH ACP auto_accept must be a boolean");
+  if (options && AUTO_ACCEPT in options &&
+      options[AUTO_ACCEPT] !== null && typeof options[AUTO_ACCEPT] !== "boolean") {
+    throw new Error("DSH ACP auto_accept must be a boolean or null (reset)");
   }
 }
 
@@ -45,12 +46,9 @@ export function validateDshInput(input: ProviderInput): void {
   } else if (input.type === "session.configure") {
     if (input.changes.mode !== undefined) unsupported("agent modes");
     validateOptions(input.changes.settings, "generic setting");
-    // Paseo 0.15.3 mirrors plugin settings into providerOptions on the same patch.
-    const mirrored = (input.changes as { providerOptions?: Record<string, unknown> }).providerOptions;
-    validateOptions(mirrored, "providerOptions");
+    validateOptions(input.changes.providerOptions, "providerOptions");
   } else if (input.type === "session.prompt") {
     if (input.prompt.delivery === "steer") unsupported("non-interrupting steering");
-    if (input.prompt.input.type === "command") unsupported("native slash commands");
     if (input.prompt.outputSchema !== undefined) unsupported("structured output schemas");
     if (input.prompt.clearPendingPermissions) unsupported("clearPendingPermissions");
   } else if (input.type === "session.permission") {

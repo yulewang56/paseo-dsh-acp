@@ -3,8 +3,8 @@
 English | [中文](README.md)
 
 Brings the **official DSH ACP profile** into Paseo. The provider ID is `deepseek`. The
-plugin reuses Paseo's `runAcpProvider` and only adds session resume and local history
-replay: no custom agent loop, no model proxy, no dependency on DSH Desktop.
+plugin reuses Paseo's `runAcpProvider` and adds session resume, local history replay,
+Auto Accept, and a Skills menu: no custom agent loop, model proxy, or DSH Desktop dependency.
 
 ```text
 Paseo → standard ACP adapter + DSH resume layer → dsh --profile acp → model API from DSH
@@ -171,7 +171,7 @@ placeholders and `history: skip` replays nothing.
 
 | Area | Behavior |
 |---|---|
-| Configuration | Rejects non-empty `systemPrompt`, `providerOptions`, generic `settings`, `toolPolicy.preapproved`, and `persist=false`; MCP supports stdio/Streamable HTTP only. |
+| Configuration | Accepts only the `auto_accept` option; rejects non-empty `systemPrompt`, unknown options, `toolPolicy.preapproved`, and `persist=false`; MCP supports stdio/Streamable HTTP only. |
 | Cancel/concurrency | `prompt.steer` is not advertised; concurrent `auto` interrupts the previous turn, explicit `steer` is rejected, and cancellation ends the turn exactly once. |
 | Permissions | Single-use allow/deny only; fills DSH's missing tool context without inventing arguments; rejects persistent grants, input rewriting, rejection messages, and deny-and-interrupt. |
 | Models | Opaque IDs are preserved; invalid choices are not committed and do not corrupt the current configuration. |
@@ -191,6 +191,11 @@ adds an `Auto Accept` toggle in the composer: when enabled it answers
 `session/request_permission` with `allow-once` and leaves an info item in the
 timeline. The sandbox still applies, so an out-of-workspace write is denied first
 and then escalated.
+
+The value is saved per DSH session under `$DSH_HOME/paseo-acp-options`
+(`~/.dsh` by default), or `DSH_ACP_SESSION_ROOT/paseo-options` when that override
+is set. Storage errors are reported explicitly. The toggle is available after
+a session opens, not in a draft before a session exists.
 
 The DSH sandbox mode is fixed at launch (default `workspace-write`):
 
@@ -221,6 +226,30 @@ The verified version lacks Standard/PTC/Minimal/Creator presets, native Plan app
 cards, and similar desktop features; models, permissions, and session capabilities come
 from the DSH/Paseo handshake.
 
+### Skills
+
+DSH ACP includes native skill discovery and the `skill` tool; the plugin does not
+copy or inject skill instructions. Default roots are the project's `.dsh/skills`
+and `.agents/skills`, plus `~/.dsh/skills` and `~/.agents/skills`.
+The shared directory is **`.agents` (plural)**, not `.agent`. Paseo installs its
+orchestration skills there. Skills installed only under `~/.claude/skills` are
+not scanned by DSH. `DSH_AGENTS_HOME` and `DSH_HOME` override the user roots;
+DSH's `skill-filesystem.customSkillDirs` adds custom roots.
+
+**After opening a DeepSeek session, type `/` in the composer to select discovered
+Skills**, including `/paseo`. You can also ask the model to use a skill, or send
+`/paseo ...` as ordinary text. Selected commands pass their name and arguments to
+DSH's own invocation parser; the plugin does not copy skill bodies into prompts.
+
+The menu lists only user-invocable Skills and updates as discovery results change.
+Incomplete or failed discovery is reported explicitly. Drafts have no Skills menu
+before a session exists.
+
+The plugin does not install additional DSH skill packages such as Office. The
+default ACP profile enables filesystem skills and their native loader; other
+skills depend on the packages enabled in that profile and local skill roots,
+not the DSH Desktop menu.
+
 ## Development and testing
 
 ```sh
@@ -230,7 +259,7 @@ npm test        # fixtures only, no model calls
 ```
 
 Real DSH integration test (reads `~/.dsh` and requires `dsh` to write its profile; makes
-two minimal model requests):
+model requests for cancellation, a short reply and two temporary skill loads):
 
 ```sh
 DSH_TEST_COMMAND=/absolute/path/to/dsh \
