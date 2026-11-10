@@ -2,9 +2,9 @@
 
 [English](README.en.md) | 中文
 
-把**官方 DSH ACP profile**接入 Paseo，附带跟随深浅主题的黑白 DeepSeek 图标。
-provider ID 为 `deepseek`。插件复用 Paseo 的 `runAcpProvider`，只补充会话恢复与
-本地历史回放；没有自定义 agent 循环，不代理模型请求，不依赖 DSH Desktop。
+把**官方 DSH ACP profile**接入 Paseo。provider ID 为 `deepseek`。插件复用 Paseo
+的 `runAcpProvider`，只补充会话恢复与本地历史回放；没有自定义 agent 循环，不代理
+模型请求，不依赖 DSH Desktop。
 
 ```text
 Paseo → 标准 ACP adapter + DSH 恢复兼容层 → dsh --profile acp → DSH 配置的模型 API
@@ -229,8 +229,7 @@ npm run test:real
 仓库自带 `dsh-acp-testing` skill：真实文件在 `.agents/skills/`（DSH/Copilot 读取），
 `.claude/skills/` 为其符号链接（Claude Code 读取）。
 
-图标来自官方 DSH Web frontend 的 `favicon.svg`（MIT），fill 改为 `currentColor`。
-商标归各自所有者所有；本项目不是 DeepSeek 或 Paseo 的官方插件。
+许可证：MIT。图标来源与商标声明见 [NOTICE](NOTICE)。
 
 参考：[官方 ACP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)、
 [官方模型配置](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md)、

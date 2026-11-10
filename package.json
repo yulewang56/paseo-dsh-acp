@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "version": "1.3.0",
-  "description": "Official DeepSeek Harness ACP for Paseo with session resume, history replay and a monochrome icon",
+  "description": "Official DeepSeek Harness ACP for Paseo with session resume and history replay",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -13,6 +13,7 @@
     "paseo-plugin.json",
     "OVERVIEW.md",
     "LICENSE",
+    "NOTICE",
     "README.md",
     "README.en.md",
     "examples/",

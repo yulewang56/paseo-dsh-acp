@@ -2,10 +2,9 @@
 
 English | [中文](README.md)
 
-Brings the **official DSH ACP profile** into Paseo, with a monochrome DeepSeek icon
-that follows the theme. The provider ID is `deepseek`. The plugin reuses Paseo's
-`runAcpProvider` and only adds session resume and local history replay: no custom agent
-loop, no model proxy, no dependency on DSH Desktop.
+Brings the **official DSH ACP profile** into Paseo. The provider ID is `deepseek`. The
+plugin reuses Paseo's `runAcpProvider` and only adds session resume and local history
+replay: no custom agent loop, no model proxy, no dependency on DSH Desktop.
 
 ```text
 Paseo → standard ACP adapter + DSH resume layer → dsh --profile acp → model API from DSH
@@ -247,9 +246,7 @@ branches are covered by fixtures.
 The repository ships a `dsh-acp-testing` skill: the real file lives in `.agents/skills/`
 (read by DSH and Copilot), and `.claude/skills/` is a symlink to it for Claude Code.
 
-The icon comes from the official DSH Web frontend's `favicon.svg` (MIT); only its fill
-was changed to `currentColor`. Trademarks belong to their respective owners; this
-project is not an official DeepSeek or Paseo plugin.
+License: MIT. Icon attribution and trademark notices are in [NOTICE](NOTICE).
 
 References: [official ACP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md),
 [official model configuration](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md),

@@ -29,7 +29,7 @@ test("the manifest, icon and published file list stay consistent", async () => {
   assert.ok((await stat(join(root, "icon.svg"))).size > 0);
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   for (const entry of [
-    "paseo-plugin.json", "OVERVIEW.md", "LICENSE", "README.md", "README.en.md",
+    "paseo-plugin.json", "OVERVIEW.md", "LICENSE", "NOTICE", "README.md", "README.en.md",
     "examples/", "icon.svg", "index.server.ts", "server/",
   ]) {
     assert.ok(pkg.files.includes(entry), `package.json files must include ${entry}`);

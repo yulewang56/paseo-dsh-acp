@@ -1,0 +1,10 @@
+Third-party notices
+
+Icon
+- icon.svg is adapted from the DeepSeek Harness Web frontend's favicon.svg
+  (DeepSeek Harness, MIT license). Only the fill was changed to currentColor.
+- The original MIT copyright notice is retained.
+
+Trademarks
+- DeepSeek, DeepSeek Harness and Paseo are trademarks of their respective owners.
+- This project is not an official DeepSeek or Paseo plugin.
