@@ -126,6 +126,16 @@ lines.on("line", (line) => {
         update({ sessionUpdate: "tool_call_update", toolCallId: "tool-image-result", status: "completed",
           content: [{ type: "content", content: { type: "image", attachmentId: "opaque" } }] });
       }
+      if (text === "todo") {
+        update({ sessionUpdate: "tool_call", toolCallId: "todo-call",
+          title: "todo_write", kind: "other", status: "in_progress", rawInput: { todos: [
+            { content: "Inspect the fixture", status: "completed" },
+            { content: "Implement the fixture", status: "in_progress" },
+            { content: "Verify the fixture", status: "pending" },
+          ] } });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "todo-call", status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "Updated todo list" } }] });
+      }
       if (text === "permission-after-complete") {
         update({ sessionUpdate: "tool_call", toolCallId: "completed-call",
           title: "Completed fixture tool", status: "in_progress", rawInput: { path: "/done" } });

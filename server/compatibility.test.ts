@@ -141,6 +141,60 @@ test("DSH ID-only permission requests acquire tool context without inventing too
   }]);
 });
 
+test("todo_write becomes a plan update and its tool lifecycle stays hidden", async () => {
+  const bridge = new DshAcpCompatibility({}, false);
+  const call: AcpStreamMessage = {
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "tool_call", toolCallId: "todo", title: "TODO/WRITE", kind: "other",
+      status: "in_progress", rawInput: { todos: [
+        { content: "Inspect", status: "completed" },
+        { content: "Implement", status: "in_progress", activeForm: "Implementing" },
+        { content: "Verify", status: "pending" },
+      ] },
+    } },
+  };
+  assert.deepEqual(await bridge.fromAgent(call), [{
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "plan", entries: [
+        { content: "Inspect", status: "completed", priority: "medium" },
+        { content: "Implement", status: "in_progress", priority: "medium" },
+        { content: "Verify", status: "pending", priority: "medium" },
+      ],
+    } },
+  }]);
+  for (const status of ["in_progress", "completed"]) {
+    assert.deepEqual(await bridge.fromAgent({
+      jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+        sessionUpdate: "tool_call_update", toolCallId: "todo", status,
+        content: [{ type: "content", content: { type: "text", text: "Updated todo list" } }],
+      } },
+    }), []);
+  }
+  const ordinary: AcpStreamMessage = {
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "tool_call", toolCallId: "ordinary", title: "Read a file", rawInput: { path: "/file" },
+    } },
+  };
+  assert.deepEqual(await bridge.fromAgent(ordinary), [ordinary]);
+});
+
+test("malformed todo_write input stays an ordinary tool call", async () => {
+  const bridge = new DshAcpCompatibility({}, false);
+  const call: AcpStreamMessage = {
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "tool_call", toolCallId: "todo", title: "todo_write",
+      rawInput: { todos: [{ content: "Inspect", status: "done" }] },
+    } },
+  };
+  assert.deepEqual(await bridge.fromAgent(call), [call]);
+  const update: AcpStreamMessage = {
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "tool_call_update", toolCallId: "todo", status: "completed",
+    } },
+  };
+  assert.deepEqual(await bridge.fromAgent(update), [update]);
+});
+
 test("tool output is not overwritten when DSH already supplied rawOutput", async () => {
   const bridge = new DshAcpCompatibility({}, false);
   const update: AcpStreamMessage = {

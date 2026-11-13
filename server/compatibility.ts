@@ -1,6 +1,7 @@
 import type { AcpStreamMessage } from "@getpaseo/plugin/server/acp";
 import { z } from "zod";
 import { historyItemMethod, readDshHistory } from "./history.ts";
+import { isTodoWriteTool, parseTodoWriteInput, todoPlanUpdate } from "./todo.ts";
 
 const initializeSchema = z.object({
   agentCapabilities: z.object({
@@ -51,6 +52,7 @@ export class DshAcpCompatibility {
   private readonly loads = new Map<RequestId, z.infer<typeof loadSchema>>();
   private readonly prompts = new Map<RequestId, string>();
   private readonly toolCalls = new Map<string, Record<string, unknown>>();
+  private readonly todoCalls = new Set<string>();
   private readonly lists = new Map<RequestId, {
     params: Record<string, unknown>;
     sessions: z.infer<typeof listSchema>["sessions"];
@@ -108,14 +110,31 @@ export class DshAcpCompatibility {
   async fromAgent(message: AcpStreamMessage): Promise<AcpStreamMessage[]> {
     if ("method" in message && message.method === "session/update") {
       const params = z.object({
+        sessionId: z.string(),
         update: z.object({ sessionUpdate: z.string() }).passthrough(),
       }).passthrough().parse(message.params);
       const { update } = params;
       if (update.sessionUpdate === "tool_call") {
-        this.toolCalls.set(z.string().parse(update.toolCallId), update);
+        const toolCallId = z.string().parse(update.toolCallId);
+        this.toolCalls.set(toolCallId, update);
+        const todos = isTodoWriteTool(update.title) ? parseTodoWriteInput(update.rawInput) : undefined;
+        if (todos) {
+          // DSH reports its task list as an ordinary tool call. Paseo only
+          // updates the composer from plan updates, so replace the call.
+          this.todoCalls.add(toolCallId);
+          return [todoPlanUpdate(params.sessionId, todos)];
+        }
       } else if (update.sessionUpdate === "tool_call_update") {
+        const toolCallId = z.string().parse(update.toolCallId);
+        if (this.todoCalls.has(toolCallId)) {
+          if (["completed", "failed"].includes(String(update.status))) {
+            this.todoCalls.delete(toolCallId);
+            this.toolCalls.delete(toolCallId);
+          }
+          return [];
+        }
         if (["completed", "failed"].includes(String(update.status))) {
-          this.toolCalls.delete(z.string().parse(update.toolCallId));
+          this.toolCalls.delete(toolCallId);
         }
         // DSH reports results through standard ACP display content. Paseo's
         // adapter only surfaces rawOutput, so mirror the history projection.

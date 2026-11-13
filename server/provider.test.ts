@@ -257,6 +257,27 @@ test("DSH tool result content stays visible in the live timeline", async () => {
   } finally { await h.connection.close(); }
 });
 
+test("DSH todo_write reaches the composer task list without a duplicate tool row", async () => {
+  const h = await harness();
+  try {
+    await h.open();
+    const todo = h.wait((event) => event.type === "timeline.item" && event.item.type === "todo");
+    const completed = h.wait((event) => event.type === "session.turn" &&
+      event.turnId === "acp:todo" && event.state === "completed");
+    await h.prompt("todo", "todo");
+    const event = await todo;
+    await completed;
+    assert.ok(event.type === "timeline.item" && event.item.type === "todo");
+    assert.deepEqual(event.item.items, [
+      { id: "0", text: "Inspect the fixture", completed: true, status: "completed" },
+      { id: "1", text: "Implement the fixture", completed: false, status: "in_progress" },
+      { id: "2", text: "Verify the fixture", completed: false, status: "pending" },
+    ]);
+    assert.ok(!h.events.some((item) => item.type === "timeline.item" &&
+      item.item.type === "tool_call" && item.item.callId === "todo-call"));
+  } finally { await h.connection.close(); }
+});
+
 test("output limits warn before completion, API errors fail, and process death is not successful completion", async () => {
   const h = await harness();
   try {
@@ -409,6 +430,65 @@ test("history replay reaches the timeline through the provider connection", { ti
     assert.ok(replay >= 0, "replayed history must reach the timeline");
     assert.ok(replay < opened, "history must be replayed before the session opens");
     assert.ok(replay < readyIndex, "history must be replayed before the session is ready");
+  } finally {
+    await h.connection.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("todo lists replay into the composer task list from persisted history", { timeout: 10000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-todo-replay-"));
+  const project = join(root, "project");
+  const sessionRoot = join(root, "sessions");
+  const directory = join(sessionRoot, "project", sessionId);
+  await mkdir(directory, { recursive: true });
+  await mkdir(project, { recursive: true });
+  const text = [
+    JSON.stringify({ type: "session", version: 4, id: sessionId, cwd: project }),
+    JSON.stringify({
+      type: "user/message", seq: 0,
+      data: { id: "planned", source: { kind: "user" }, content: [{ type: "text", text: "plan it" }] },
+    }),
+    JSON.stringify({
+      type: "tool/call", seq: 1,
+      data: {
+        callId: "todo-replay", name: "todo_write",
+        arguments: JSON.stringify({ todos: [
+          { content: "Replay the plan", status: "in_progress" },
+          { content: "Replay the result", status: "completed" },
+        ] }),
+      },
+    }),
+    JSON.stringify({
+      type: "tool/result", seq: 2,
+      data: { message: {
+        id: "todo-replay-result", toolCallId: "todo-replay", isError: false,
+        content: [{ type: "text", text: "Updated todo list" }],
+      } },
+    }),
+    JSON.stringify({ type: "turn/end", seq: 3, data: { reason: { kind: "completed" } } }),
+    "",
+  ].join("\n");
+  await writeFile(join(directory, "session.v4.jsonl"), text);
+  const h = await harness();
+  try {
+    const ready = await h.request({
+      type: "session.open", requestId: "todo-replay", sessionId, history: "replay",
+      persistence: { version: 1, data: { sessionId } },
+      config: {
+        cwd: project, env: { DSH_ACP_SESSION_ROOT: sessionRoot },
+        mcpServers: {}, settings: {}, persist: true,
+      },
+    });
+    assert.equal(ready.type, "session.ready");
+    const todo = h.events.find((event) => event.type === "timeline.item" && event.item.type === "todo");
+    assert.ok(todo?.type === "timeline.item" && todo.item.type === "todo");
+    assert.deepEqual(todo.item.items, [
+      { id: "0", text: "Replay the plan", completed: false, status: "in_progress" },
+      { id: "1", text: "Replay the result", completed: true, status: "completed" },
+    ]);
+    assert.ok(!h.events.some((event) => event.type === "timeline.item" &&
+      event.item.type === "tool_call" && event.item.callId === "todo-replay"));
   } finally {
     await h.connection.close();
     await rm(root, { recursive: true, force: true });

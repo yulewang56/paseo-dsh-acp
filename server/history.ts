@@ -5,6 +5,7 @@ import { zstdDecompressSync } from "node:zlib";
 import type { AcpStreamMessage } from "@getpaseo/plugin/server/acp";
 import type { ProviderTimelineItem } from "@getpaseo/plugin/server/provider";
 import { z } from "zod";
+import { isTodoWriteTool, parseTodoWriteInput, todoPlanUpdate } from "./todo.ts";
 
 const sessionIdentity = z.object({
   sessionId: z.uuid(),
@@ -88,6 +89,7 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
   if (header.id !== sessionId) throw new Error("DSH history session ID does not match");
   const messages: AcpStreamMessage[] = [];
   const tools = new Map<string, Extract<ProviderTimelineItem, { type: "tool_call" }>>();
+  const todoCalls = new Set<string>();
   const append = (item: ProviderTimelineItem) => {
     messages.push({
       jsonrpc: "2.0",
@@ -143,6 +145,14 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
         if (!(error instanceof SyntaxError)) throw error;
         rawInput = call.arguments;
       }
+      const todos = isTodoWriteTool(call.name) ? parseTodoWriteInput(rawInput) : undefined;
+      if (todos) {
+        // Replay the same plan update the live bridge emits, so the composer
+        // task list survives a resume without a duplicate tool row.
+        todoCalls.add(call.callId);
+        messages.push(todoPlanUpdate(sessionId, todos));
+        continue;
+      }
       const item: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
         type: "tool_call", id: call.callId, callId: call.callId,
         name: call.name, status: "running", error: null,
@@ -154,6 +164,7 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
       const result = messageSchema.extend({
         toolCallId: z.string(), isError: z.boolean().optional(),
       }).parse(event.data.message);
+      if (todoCalls.delete(result.toolCallId)) continue;
       const text = result.content.map(blockText).filter((value) => value !== undefined).join("\n");
       const call = tools.get(result.toolCallId);
       if (!call || call.detail.type !== "unknown") throw new Error("DSH history tool result has no call");
@@ -179,6 +190,7 @@ export function projectHistory(text: string, sessionId: string): AcpStreamMessag
         });
       }
       finishTools(["aborted", "interrupted"].includes(reason.kind));
+      todoCalls.clear();
     }
   }
   finishTools(false);

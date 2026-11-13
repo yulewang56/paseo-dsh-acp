@@ -146,6 +146,47 @@ test("non-JSON tool arguments stay as text instead of being guessed", () => {
   });
 });
 
+test("todo_write calls replay as plan updates without duplicate tool rows", () => {
+  const todos = [
+    { content: "Inspect", status: "completed" },
+    { content: "Implement", status: "in_progress" },
+  ];
+  const rows = [
+    { type: "tool/call", seq: 0, data: {
+      callId: "todo-1", name: "todo_write", arguments: JSON.stringify({ todos }),
+    } },
+    { type: "tool/result", seq: 1, data: { message: {
+      id: "todo-result", toolCallId: "todo-1", isError: false,
+      content: [{ type: "text", text: "Updated todo list" }],
+    } } },
+    { type: "turn/end", seq: 2, data: { reason: { kind: "completed" } } },
+  ];
+  assert.deepEqual(projectHistory(jsonl([header, ...rows]), sessionId), [{
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update: {
+      sessionUpdate: "plan", entries: [
+        { content: "Inspect", status: "completed", priority: "medium" },
+        { content: "Implement", status: "in_progress", priority: "medium" },
+      ],
+    } },
+  }]);
+});
+
+test("malformed todo_write history keeps the ordinary tool row", () => {
+  const rows = [
+    { type: "tool/call", seq: 0, data: {
+      callId: "todo-1", name: "todo_write",
+      arguments: '{"todos":[{"content":"Inspect","status":"done"}]}',
+    } },
+    { type: "turn/end", seq: 1, data: { reason: { kind: "completed" } } },
+  ];
+  const projected = projectHistory(jsonl([header, ...rows]), sessionId);
+  assert.equal(projected.length, 2);
+  for (const message of projected) {
+    assert.ok("params" in message);
+    assert.equal((message.params as { type: string }).type, "tool_call");
+  }
+});
+
 test("history discovery honors the session root override, prefers zstd and ignores stray files", async () => {
   const root = await mkdtemp(join(tmpdir(), "dsh-history-root-"));
   try {

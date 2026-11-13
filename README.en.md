@@ -163,6 +163,9 @@ plugin translates `session/load` into `session/resume`, restores the same sessio
 and replays history from local v4 logs (all Zstd frames), failing explicitly instead of
 creating an empty session. The replay also restores the last context-window usage, so
 the context meter is populated after a restart instead of waiting for the next turn.
+DSH `todo_write` task lists are projected to Paseo's composer task list (the `N/M tasks`
+pill above the input), including after a resume, without a duplicate raw tool card in
+the message list.
 
 Logs live under `$DSH_HOME/sessions` (default `~/.dsh/sessions`); `session.v4.jsonl.zstd`
 and `.jsonl` are supported and read-only. Point the provider environment variable

@@ -4,7 +4,8 @@ Uses `dsh --profile acp` on the daemon host. DSH handles the agent,
 tools, permissions and model requests. A compatibility layer translates
 session loading to official DSH resume and reconstructs the timeline from
 local DSH v4 session logs. It preserves the native session ID and reports
-resume or history failures instead of replacing the conversation.
+resume or history failures instead of replacing the conversation. DSH todo
+lists are projected to Paseo's composer task list, including after resume.
 
 Requires Paseo 0.15.3 or later and an installed official DSH CLI with a compatible
 Node runtime, plus Node 22.15 or later in the daemon for Zstandard history.
