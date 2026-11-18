@@ -2,22 +2,28 @@ import { isAbsolute } from "node:path";
 import type { ProviderInput } from "@getpaseo/plugin/server/provider";
 
 const AUTO_ACCEPT = "auto_accept";
+const AGENT = "agent";
+const PLUGIN_OPTIONS = new Set([AUTO_ACCEPT, AGENT]);
 
 function unsupported(field: string): never {
   throw new Error(`DSH ACP does not support ${field}; the request was not applied`);
 }
 
 /**
- * Paseo plugin options are limited to the one knob this plugin owns. Anything
+ * Paseo plugin options are limited to the knobs this plugin owns. Anything
  * else would be silently ignored, so it is rejected instead.
  */
 function validateOptions(options: Readonly<Record<string, unknown>> | undefined, label: string): void {
   for (const key of Object.keys(options ?? {})) {
-    if (key !== AUTO_ACCEPT) unsupported(`${label} '${key}'; only auto_accept is supported`);
+    if (!PLUGIN_OPTIONS.has(key)) unsupported(`${label} '${key}'; only auto_accept and agent are supported`);
   }
   if (options && AUTO_ACCEPT in options &&
       options[AUTO_ACCEPT] !== null && typeof options[AUTO_ACCEPT] !== "boolean") {
     throw new Error("DSH ACP auto_accept must be a boolean or null (reset)");
+  }
+  if (options && AGENT in options &&
+      options[AGENT] !== null && typeof options[AGENT] !== "string") {
+    throw new Error("DSH ACP agent must be an agent id or null (reset)");
   }
 }
 

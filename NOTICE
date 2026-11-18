@@ -4,6 +4,8 @@ Icon
 - icon.svg is adapted from the DeepSeek Harness Web frontend's favicon.svg
   (DeepSeek Harness, MIT license). Only the fill was changed to currentColor.
 - The original MIT copyright notice is retained.
+- icon.png is a DeepSeek-blue rasterization of the same whale for Paseo's
+  plugin listing, which requires PNG assets.
 
 Trademarks
 - DeepSeek, DeepSeek Harness and Paseo are trademarks of their respective owners.

@@ -90,11 +90,15 @@ test("session.open without a persist flag is rejected instead of silently persis
   }), /persist=false/);
 });
 
-test("only auto_accept is accepted as a plugin option", () => {
+test("only auto_accept and agent are accepted as plugin options", () => {
   assert.doesNotThrow(() => validateDshInput({
     type: "session.open", requestId: "open", sessionId: "session", history: "skip",
-    config: { ...config, settings: { auto_accept: true }, providerOptions: { auto_accept: false } },
+    config: { ...config, settings: { auto_accept: true, agent: "dsh-agent-x" }, providerOptions: { auto_accept: false, agent: "dsh-default" } },
   }));
+  assert.throws(() => validateDshInput({
+    type: "session.open", requestId: "open", sessionId: "session", history: "skip",
+    config: { ...config, settings: { agent: true as unknown as string } },
+  }), /agent must be an agent id/);
   assert.throws(() => validateDshInput({
     type: "session.open", requestId: "open", sessionId: "session", history: "skip",
     config: { ...config, settings: { auto_accept: "yes" as unknown as boolean } },
@@ -102,11 +106,11 @@ test("only auto_accept is accepted as a plugin option", () => {
   assert.throws(() => validateDshInput({
     type: "session.open", requestId: "open", sessionId: "session", history: "skip",
     config: { ...config, settings: { other: true } },
-  }), /only auto_accept/);
+  }), /only auto_accept and agent/);
   assert.throws(() => validateDshInput({
     type: "session.open", requestId: "open", sessionId: "session", history: "skip",
     config: { ...config, providerOptions: { other: true } },
-  }), /only auto_accept/);
+  }), /only auto_accept and agent/);
   assert.doesNotThrow(() => validateDshInput({
     type: "session.configure", requestId: "change", sessionId: "session",
     changes: { providerOptions: { auto_accept: true } },
@@ -122,9 +126,9 @@ test("only auto_accept is accepted as a plugin option", () => {
   assert.throws(() => validateDshInput({
     type: "session.configure", requestId: "change", sessionId: "session",
     changes: { settings: { other: true } },
-  }), /only auto_accept/);
+  }), /only auto_accept and agent/);
   assert.throws(() => validateDshInput({
     type: "session.configure", requestId: "change", sessionId: "session",
     changes: { providerOptions: { other: true } },
-  }), /only auto_accept/);
+  }), /only auto_accept and agent/);
 });

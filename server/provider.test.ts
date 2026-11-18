@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 import { setImmediate } from "node:timers/promises";
 import type { ProviderEvent, ProviderInput } from "@getpaseo/plugin/server/provider";
 import { ProviderEventSchema, ProviderInputSchema } from "@getpaseo/plugin/server/provider";
@@ -127,7 +127,7 @@ test("the native settings control commits options and persists them across resum
       changes: { settings: { auto_accept: false } },
     });
     assert.equal(h.events.filter((event) => event.type === "session.config").at(-1)?.config
-      .settings.find((setting) => setting.id === "auto_accept")?.value, false);
+      .settings?.find((setting) => setting.id === "auto_accept")?.value, false);
   } finally { await h.connection.close(); }
 });
 test("cancel and concurrent auto input end the old turn exactly once and accept the next prompt", async () => {
@@ -587,7 +587,7 @@ test("the Auto Accept composer control reports its committed option and approves
       description: "Auto accept permission prompts", icon: "ShieldCheck", defaultValue: false,
     });
     assert.equal(config.config.providerOptions?.auto_accept, true);
-    assert.equal(config.config.settings.find((setting) => setting.id === "auto_accept")?.value, true);
+    assert.equal(config.config.settings?.find((setting) => setting.id === "auto_accept")?.value, true);
     const completed = h.wait((event) => event.type === "session.turn" &&
       event.turnId === "acp:permission" && event.state === "completed");
     await h.prompt("permission", "permission");
@@ -649,7 +649,7 @@ test("legacy settings publish exactly one native Auto Accept control with the co
       assert.ok(event);
       const wire = ProviderEventSchema.parse(event);
       assert.ok(wire.type === "session.config");
-      assert.deepEqual(wire.config.settings.filter((setting) => setting.id === "auto_accept"), [{
+      assert.deepEqual(wire.config.settings?.filter((setting) => setting.id === "auto_accept"), [{
         type: "toggle", id: "auto_accept", label: "Auto Accept",
         description: "Auto accept permission prompts", value,
       }]);

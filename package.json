@@ -18,18 +18,29 @@
     "README.en.md",
     "examples/",
     "icon.svg",
+    "icon.png",
     "index.server.ts",
+    "index.client.tsx",
+    "client/",
     "server/",
     "shared/"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test server/*.test.ts",
-    "test:real": "node scripts/test-real.mjs"
+    "test": "node --experimental-strip-types --test server/*.test.ts server/*.test.mjs",
+    "test:real": "node scripts/test-real.mjs",
+    "embed": "node scripts/embed-overlay.mjs"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.15.0-beta.1",
+    "@getpaseo/plugin": "0.16.0-beta.1",
+    "@types/react": "19.1.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "zod": "4.4.3",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
   }
 }

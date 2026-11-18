@@ -6,6 +6,7 @@ import { runAcpProvider, type AcpStream, type AcpStreamMessage } from "@getpaseo
 import type { ProviderEvent, ProviderInput, ProviderLaunch, ProviderRegistration } from "@getpaseo/plugin/server/provider";
 import { ProviderEventSchema } from "@getpaseo/plugin/server/provider";
 import { z } from "zod";
+import * as yaml from "yaml";
 import { DshAcpCompatibility, type ApprovalState } from "./compatibility.ts";
 import { historyItemMethod } from "./history.ts";
 import { validateDshInput } from "./semantics.ts";
@@ -13,46 +14,104 @@ import { autoAcceptControl } from "./provider-options.ts";
 import { createSkillsOverlay } from "./skills-bridge.ts";
 import { autoAcceptPersistence } from "../shared/auto-accept.ts";
 import { AutoAcceptStore } from "./auto-accept-store.ts";
+import { effectiveSettings, readDefaultSettings, type ReadSettings } from "./settings.ts";
+import {
+  DEFAULT_PRESET_ID,
+  agentControlChoices,
+  discoverAgentDefinitions,
+  type AgentDefinition,
+} from "./agents.mjs";
 
 interface OpenContext {
   env: Readonly<Record<string, string>>;
+  skills: ReturnType<typeof effectiveSettings>["skills"];
   replay: boolean;
   approval: ApprovalState;
 }
 
 const AUTO_ACCEPT = "auto_accept";
+const AGENT = "agent";
 type SessionConfigEvent = Extract<ProviderEvent, { type: "session.config" }>;
+
+interface AgentState {
+  agents: readonly AgentDefinition[];
+  value: string;
+  warnings: readonly string[];
+  warned: boolean;
+}
 
 function autoAcceptValue(options: Readonly<Record<string, unknown>> | undefined): boolean | undefined {
   const value = options?.[AUTO_ACCEPT];
   return value === null ? false : typeof value === "boolean" ? value : undefined;
 }
 
-function withoutAutoAccept<T>(
+function withoutPluginOptions<T>(
   options: Readonly<Record<string, T>> | undefined,
 ): Record<string, T> | undefined {
   if (!options) return undefined;
-  const { [AUTO_ACCEPT]: _ignored, ...rest } = options;
+  const { [AUTO_ACCEPT]: _auto, [AGENT]: _agent, ...rest } = options;
   return rest;
 }
 
-function withAutoAccept(event: SessionConfigEvent, value: boolean): SessionConfigEvent {
+function agentControl(state: AgentState) {
+  const choices = [...agentControlChoices(state.agents)];
+  if (!choices.some((choice) => choice.value === state.value)) {
+    choices.push({
+      value: state.value,
+      label: state.value,
+      description: "The selected agent definition is no longer available.",
+    });
+  }
+  return {
+    type: "select" as const,
+    key: AGENT,
+    label: "Agent",
+    description: "Select a DeepSeek Harness agent for this session",
+    tooltip: "Select DSH agent",
+    icon: "Bot",
+    defaultValue: DEFAULT_PRESET_ID,
+    choices,
+  };
+}
+
+export function withProviderControls(
+  event: SessionConfigEvent,
+  autoAccept: boolean,
+  agent: AgentState | undefined,
+): SessionConfigEvent {
+  const showAgent = agent !== undefined;
+  const controls = [
+    ...(event.config.controls ?? []).filter((control) => control.key !== AUTO_ACCEPT && control.key !== AGENT),
+    autoAcceptControl,
+    ...(showAgent ? [agentControl(agent)] : []),
+  ];
+  const settings = [
+    ...(event.config.settings ?? []).filter((setting) => setting.id !== AUTO_ACCEPT && setting.id !== AGENT),
+    {
+      type: "toggle" as const, id: AUTO_ACCEPT, label: autoAcceptControl.label,
+      description: autoAcceptControl.description, value: autoAccept,
+    },
+    ...(showAgent ? [{
+      type: "select" as const, id: AGENT, label: "Agent",
+      description: "Select a DeepSeek Harness agent for this session",
+      value: agent.value,
+      options: agentControl(agent).choices.map((choice) => ({
+        label: choice.label,
+        value: choice.value,
+      })),
+    }] : []),
+  ];
   return {
     ...event,
     config: {
       ...event.config,
-      controls: [
-        ...(event.config.controls ?? []).filter((control) => control.key !== AUTO_ACCEPT),
-        autoAcceptControl,
-      ],
-      providerOptions: { ...event.config.providerOptions, [AUTO_ACCEPT]: value },
-      settings: [
-        ...(event.config.settings ?? []).filter((setting) => setting.id !== AUTO_ACCEPT),
-        {
-          type: "toggle", id: AUTO_ACCEPT, label: autoAcceptControl.label,
-          description: autoAcceptControl.description, value,
-        },
-      ],
+      controls,
+      settings,
+      providerOptions: {
+        ...event.config.providerOptions,
+        [AUTO_ACCEPT]: autoAccept,
+        ...(showAgent ? { [AGENT]: agent.value } : {}),
+      },
     },
   };
 }
@@ -78,7 +137,7 @@ function parseMessage(line: string): AcpStreamMessage {
 
 async function connectDsh(launch: ProviderLaunch, context?: OpenContext): Promise<AcpStream> {
   const env = { ...launch.env, ...context?.env };
-  const overlay = await createSkillsOverlay();
+  const overlay = await createSkillsOverlay(context?.skills);
   const child = spawnProcess(launch.command, [...launch.args, "--patch", overlay.path], { env, stdio: "pipe" });
   const write = async (message: AcpStreamMessage) => {
     await new Promise<void>((resolve, reject) => {
@@ -142,7 +201,7 @@ async function connectDsh(launch: ProviderLaunch, context?: OpenContext): Promis
   };
 }
 
-export function createDshProvider(): ProviderRegistration {
+export function createDshProvider(readSettings: ReadSettings = readDefaultSettings): ProviderRegistration {
   return {
     id: "deepseek",
     label: "DeepSeek Harness",
@@ -160,15 +219,29 @@ export function createDshProvider(): ProviderRegistration {
       const provider = runAcpProvider({
         id: "deepseek",
         label: "DeepSeek Harness",
-        connector: () => connectDsh(launch, context.getStore()),
+        connector: async () => {
+          const current = context.getStore();
+          if (current) return connectDsh(launch, current);
+          const effective = effectiveSettings(await readSettings(), launch.env);
+          return connectDsh(launch, { ...effective, replay: false, approval: { pending: false, bySession: new Map() } });
+        },
         acpOptions: { waitForInitialCommands: true, startupTimeoutMs: 30_000 },
         transformers: [{
+          async configure(change, context) {
+            if (change.target !== "setting" || change.id !== AGENT) return "pass";
+            if (typeof change.value !== "string") throw new Error("DSH agent selection must be an agent id");
+            await context.config.set(AGENT, change.value);
+            return "handled";
+          },
           notification(notification, context) {
-            if (notification.method === "dsh/skills_warning") {
+            if (notification.method === "dsh/skills_warning" || notification.method === "dsh/agents_warning") {
               const params = z.object({ message: z.string(), dismissed: z.boolean().optional() }).parse(notification.params);
+              const agents = notification.method === "dsh/agents_warning";
               return { type: "notice", notice: {
-                id: "dsh-skills-discovery", severity: "warning",
-                title: "Skills discovery", description: params.message,
+                id: agents ? "dsh-agents-discovery" : "dsh-skills-discovery",
+                severity: "warning",
+                title: agents ? "Agent definitions" : "Skills discovery",
+                description: params.message,
                 dismissed: params.dismissed,
               } };
             }
@@ -181,7 +254,13 @@ export function createDshProvider(): ProviderRegistration {
           },
         }],
       });
-      const connection = await provider.connect(request);
+      let connection;
+      try {
+        connection = await provider.connect(request);
+      } catch (error) {
+        console.error("DSH provider connect failed", error instanceof Error ? error.stack ?? error.message : String(error));
+        throw error;
+      }
       const capabilities = connection.capabilities;
       const listeners = new Set<(event: ProviderEvent) => void>();
       const queries = new Map<string, Extract<ProviderInput, { type: "sessions" }>>();
@@ -189,6 +268,7 @@ export function createDshProvider(): ProviderRegistration {
       const autoByBoundary = new Map<string, boolean>();
       const boundaryToNative = new Map<string, string>();
       const lastConfig = new Map<string, SessionConfigEvent["config"]>();
+      const agentStates = new Map<string, AgentState>();
       const commands = new Map<string, Set<string>>();
       const stores = new Map<string, AutoAcceptStore>();
       const writes = new Map<string, Promise<void>>();
@@ -205,7 +285,7 @@ export function createDshProvider(): ProviderRegistration {
           autoByBoundary.set(sessionId, auto);
           approval.bySession.set(native, auto);
           const config = lastConfig.get(sessionId);
-          if (config) emit(withAutoAccept({ type: "session.config", sessionId, config }, auto));
+          if (config) emit(withProviderControls({ type: "session.config", sessionId, config }, auto, agentStates.get(sessionId)));
         });
         writes.set(sessionId, operation);
         return operation;
@@ -224,9 +304,30 @@ export function createDshProvider(): ProviderRegistration {
             const auto = autoByBoundary.get(event.sessionId) ?? false;
             approval.bySession.set(native, auto);
           }
+          const state = agentStates.get(event.sessionId);
+          if (state && state.warnings.length > 0 && !state.warned) {
+            state.warned = true;
+            emit({
+              type: "session.notice",
+              sessionId: event.sessionId,
+              notice: {
+                id: "dsh-agents-discovery",
+                severity: "warning",
+                title: "Agent definitions",
+                description: state.warnings.slice(0, 3).join("; "),
+              },
+            });
+          }
         } else if (event.type === "session.config") {
+          const state = agentStates.get(event.sessionId);
+          if (state) {
+            const setting = (event.config.settings ?? []).find((entry) => entry.id === AGENT);
+            if (setting?.type === "select" && typeof setting.value === "string") {
+              state.value = setting.value;
+            }
+          }
           lastConfig.set(event.sessionId, event.config);
-          event = withAutoAccept(event, autoByBoundary.get(event.sessionId) ?? false);
+          event = withProviderControls(event, autoByBoundary.get(event.sessionId) ?? false, state);
         } else if (event.type === "session.commands") {
           commands.set(event.sessionId, new Set(event.commands.map((command) => command.name)));
         } else if (event.type === "sessions") {
@@ -259,6 +360,7 @@ export function createDshProvider(): ProviderRegistration {
           boundaryToNative.delete(event.sessionId);
           autoByBoundary.delete(event.sessionId);
           lastConfig.delete(event.sessionId);
+          agentStates.delete(event.sessionId);
           commands.delete(event.sessionId);
           stores.delete(event.sessionId);
           writes.delete(event.sessionId);
@@ -294,33 +396,91 @@ export function createDshProvider(): ProviderRegistration {
             stores.set(input.sessionId, store);
             const stored = autoAcceptPersistence.safeParse(input.persistence);
             return (async () => {
+              const effective = effectiveSettings(await readSettings(), { ...launch.env, ...input.config.env });
               const persisted = stored.success ? await store.read(stored.data.data.sessionId) : undefined;
               const auto = persisted ??
                 autoAcceptValue(input.config.providerOptions) ??
                 autoAcceptValue(input.config.settings) ?? false;
               approval.pending = auto;
               autoByBoundary.set(input.sessionId, auto);
+              let discovery;
+              try {
+                discovery = await discoverAgentDefinitions({
+                  cwd: input.config.cwd,
+                  env: effective.env,
+                  yaml,
+                });
+              } catch (error) {
+                throw new Error(`DSH agent discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+              }
+              const rawRequested = input.config.providerOptions?.[AGENT] ?? input.config.settings?.[AGENT];
+              if (rawRequested !== undefined && rawRequested !== null && rawRequested !== "" &&
+                  typeof rawRequested !== "string") {
+                throw new Error("DSH agent selection must be an agent id");
+              }
+              const requested = rawRequested === undefined || rawRequested === null || rawRequested === ""
+                ? DEFAULT_PRESET_ID
+                : rawRequested;
+              if (!input.persistence && requested !== DEFAULT_PRESET_ID &&
+                  !discovery.agents.some((definition) => definition.presetId === requested)) {
+                throw new Error(`Unknown DSH agent definition: ${requested}`);
+              }
+              agentStates.set(input.sessionId, {
+                agents: discovery.agents,
+                value: requested,
+                warnings: discovery.warnings,
+                warned: false,
+              });
               // Plugin-owned options must not be forwarded as native DSH config.
+              // The agent id stays in providerOptions because Paseo places that
+              // record in ACP `_meta`, which the DSH overlay reads on new/resume.
+              const settings = { ...(withoutPluginOptions(input.config.settings) ?? {}) };
+              if (!input.persistence && requested !== DEFAULT_PRESET_ID) settings[AGENT] = requested;
               const config = {
                 ...input.config,
-                settings: withoutAutoAccept(input.config.settings) ?? {},
-                providerOptions: withoutAutoAccept(input.config.providerOptions),
+                settings,
+                providerOptions: {
+                  ...(withoutPluginOptions(input.config.providerOptions) ?? {}),
+                  [AGENT]: requested,
+                },
               };
+              // A resumed DSH session owns its last committed model/effort.
+              // Sending the Paseo creation-time values again would overwrite it.
+              if (input.persistence) {
+                delete config.model;
+                delete config.thinkingOption;
+              }
               return await context.run({
-                env: input.config.env, replay: input.history === "replay", approval,
+                ...effective, replay: input.history === "replay", approval,
               }, () => connection.send({ ...input, config }));
             })();
           }
           if (input.type === "session.configure") {
             const changes = input.changes;
             const auto = autoAcceptValue(changes.providerOptions) ?? autoAcceptValue(changes.settings);
-            const settings = withoutAutoAccept(changes.settings);
-            const providerOptions = withoutAutoAccept(changes.providerOptions);
+            const settings = withoutPluginOptions(changes.settings);
+            const providerOptions = withoutPluginOptions(changes.providerOptions);
             const forwarded: typeof input.changes = {};
             if (changes.model !== undefined) forwarded.model = changes.model;
             if (changes.mode !== undefined) forwarded.mode = changes.mode;
             if (changes.thinkingOption !== undefined) forwarded.thinkingOption = changes.thinkingOption;
-            if (settings && Object.keys(settings).length > 0) forwarded.settings = settings;
+            const hasAgent = Object.hasOwn(changes.providerOptions ?? {}, AGENT) ||
+              Object.hasOwn(changes.settings ?? {}, AGENT);
+            if (hasAgent) {
+              const state = agentStates.get(input.sessionId);
+              if (!state) throw new Error(`Unknown session: ${input.sessionId}`);
+              const raw = changes.providerOptions?.[AGENT] ?? changes.settings?.[AGENT];
+              if (raw !== null && raw !== "" && typeof raw !== "string") {
+                throw new Error("DSH agent selection must be an agent id");
+              }
+              const value = raw === null || raw === "" ? DEFAULT_PRESET_ID : raw;
+              if (value !== DEFAULT_PRESET_ID && !state.agents.some((definition) => definition.presetId === value)) {
+                throw new Error(`Unknown DSH agent definition: ${value}`);
+              }
+              forwarded.settings = { ...(settings ?? {}), [AGENT]: value };
+            } else if (settings && Object.keys(settings).length > 0) {
+              forwarded.settings = settings;
+            }
             if (providerOptions && Object.keys(providerOptions).length > 0) {
               forwarded.providerOptions = providerOptions;
             }
@@ -353,6 +513,7 @@ export function createDshProvider(): ProviderRegistration {
             autoByBoundary.clear();
             boundaryToNative.clear();
             lastConfig.clear();
+            agentStates.clear();
             commands.clear();
             stores.clear();
             writes.clear();

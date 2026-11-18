@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AcpStreamMessage } from "@getpaseo/plugin/server/acp";
+import { AGENTS_MODULE, AGENT_PRESET_MODULE, OVERLAY_MODULE, SKILL_FILESYSTEM_MODULE } from "./embedded-overlay.ts";
 
 type Message = AcpStreamMessage;
 interface SkillAgent { session: { id: string }; }
@@ -141,38 +142,28 @@ export function withSkillCommands(
   });
 }
 
-export async function createSkillsOverlay(): Promise<{ path: string; close(): Promise<void> }> {
-  const directory = await mkdtemp(join(tmpdir(), "paseo-dsh-skills-"));
-  const module = join(directory, "skills.mjs");
+export async function createSkillsOverlay(skills?: {
+  claudeSkills: boolean; copilotSkills: boolean; customSkillDirs: string[];
+}): Promise<{ path: string; close(): Promise<void> }> {
+  const directory = await mkdtemp(join(tmpdir(), "paseo-dsh-overlay-"));
   const path = join(directory, "overlay.json");
+  const module = join(directory, "overlay.mjs");
   try {
-    await writeFile(module, `
-import { createRequire } from "node:module";
-import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-import { Readable, Writable } from "node:stream";
-const requireDsh = createRequire(realpathSync(process.argv[1]));
-const acpPath = requireDsh.resolve("@deepseek-ai/dsh-acp");
-const acp = await import(pathToFileURL(acpPath).href);
-const sdk = await import(pathToFileURL(createRequire(acpPath).resolve("@agentclientprotocol/sdk")).href);
-const loader = await import(pathToFileURL(requireDsh.resolve("@deepseek-ai/cordis-plugin-loader")).href);
-export const name = "paseo-dsh-skills";
-export const inject = [...acp.inject, "skills", "workingDirectory", "loader"];
-export const Config = acp.Config;
-export function apply(ctx, config) {
-  const entry = [...ctx.loader.entries()].find((item) => item.options.id === "acp");
-  if (!entry || entry.options.name !== "@deepseek-ai/dsh-acp") {
-    throw new Error("Cannot locate the official DSH ACP configuration");
-  }
-  const options = acp.Config(loader.interpolate(entry.ctx, entry.options.config ?? {}));
-  const stream = config.stream ?? sdk.ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
-  return (${withSkillCommands.toString()})(ctx, options, acp, stream);
-}
-`);
-    // Patch names are assertions, not replacements; mount the wrapper separately.
+    // Paseo evaluates the plugin server bundle with esbuild CJS, where
+    // import.meta.url is not a usable plugin-directory path. Keep the DSH-side
+    // modules embedded and materialize them beside the patch instead.
+    await Promise.all([
+      writeFile(module, OVERLAY_MODULE),
+      writeFile(join(directory, "agents.mjs"), AGENTS_MODULE),
+      writeFile(join(directory, "agent-preset.mjs"), AGENT_PRESET_MODULE),
+      writeFile(join(directory, "skill-filesystem.mjs"), SKILL_FILESYSTEM_MODULE),
+    ]);
+    // Patch names are assertions, not replacements; mount the overlay separately.
     await writeFile(path, JSON.stringify([
       { id: "acp", name: "@deepseek-ai/dsh-acp", disabled: true },
-      { insert: [{ id: "paseo-dsh-skills", name: module }] },
+      { id: "skill-filesystem", name: "@deepseek-ai/dsh-skill-filesystem", disabled: true },
+      { insert: [{ id: "paseo-skill-filesystem", name: join(directory, "skill-filesystem.mjs"), config: skills ?? {} }] },
+      { insert: [{ id: "paseo-dsh-overlay", name: module }] },
     ]));
     return { path, close: () => rm(directory, { recursive: true, force: true }) };
   } catch (error) {

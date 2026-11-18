@@ -2,63 +2,40 @@
 
 English | [中文](README.md)
 
-Brings the **official DSH ACP profile** into Paseo. The provider ID is `deepseek`. The
-plugin reuses Paseo's `runAcpProvider` and adds session resume, local history replay,
-Auto Accept, and a Skills menu: no custom agent loop, model proxy, or DSH Desktop dependency.
-
-```text
-Paseo → standard ACP adapter + DSH resume layer → dsh --profile acp → model API from DSH
-```
-
-## Requirements
-
-Everything below runs on the **machine hosting the Paseo daemon**.
-
-- Paseo >= 0.15.3 with plugins enabled.
-- Node >= 22.15 on the daemon (Zstandard decompression).
-- The official DSH CLI; verified against 0.2.2-alpha.2 (which requires Node >= 24.9.0).
-
-Plugins are trusted, unsandboxed code and run with the daemon user's privileges. Review
-the source before installing. The plugin does not install DSH or upload configuration or
-credentials, and only reads DSH session files for history replay.
+Connects the official `dsh --profile acp` to Paseo as provider `deepseek`.
+Adds session resume and history replay, task lists, Auto Accept, Skills menus,
+and named agents. DSH handles model requests, tools, and sandboxing; DSH Desktop is not required.
 
 ## Install
 
-### 1. Prepare DSH
+On the **Paseo daemon host**, prepare:
+
+- Paseo daemon and app >= 0.16.1, with Settings → Plugins enabled.
+- Daemon Node >= 22.15; verified DSH `0.2.2-alpha.2` requires Node >= 24.9.0.
+- The official DSH CLI with model routes and credentials configured.
 
 ```sh
-npm install -g @deepseek-ai/dsh
-dsh --version
+npm install -g @deepseek-ai/dsh@0.2.2-alpha.2
 dsh --profile acp --help
-```
-
-Pin `@deepseek-ai/dsh@0.2.2-alpha.2` when you need reproducibility. The `dsh` command
-registered by official Desktop also works if it supports ACP.
-
-### 2. Install the plugin
-
-Enable the daemon's global plugin switch first (Settings → Plugins).
-
-```sh
 paseo plugin add git:yulewang56/paseo-dsh-acp
 paseo plugin ls
 paseo provider diagnostic deepseek --json
 ```
 
-If Git installation is unavailable, use a directory source:
+Git installs use the committed lockfile to install runtime dependencies and require npm.
+Expect plugin `running` and provider `Ready`; send a first message to verify model authentication.
+Plugins are trusted, unsandboxed code running as the daemon user. Review the source before installing.
+
+For local development, use a directory source:
 
 ```sh
 git clone https://github.com/yulewang56/paseo-dsh-acp.git
+cd paseo-dsh-acp
+npm ci
 paseo plugin install /absolute/path/to/paseo-dsh-acp
 ```
 
-No `npm install` is needed: the plugin has no build/install scripts. The plugin should
-be `running` and the provider `Ready`; diagnostics do not prove that model calls work.
-
-### 3. CLI path (optional)
-
-The default launch is `dsh --profile acp`. If the daemon cannot find `dsh`, **merge**
-this object into `~/.paseo/config.json`:
+If the daemon cannot find `dsh`, merge its actual path into `~/.paseo/config.json`:
 
 ```json
 {
@@ -73,214 +50,140 @@ this object into `~/.paseo/config.json`:
 }
 ```
 
-On Windows use the actual `dsh.cmd` path. Only macOS has been tested directly; run the
-same diagnostics elsewhere. Windows cold start can take 7–14 seconds; the plugin allows
-30 seconds for ACP initialization, and starting `dsh web` first is not required. If the
-default Node is too old, set `command` to
-`["/path/to/node", "/path/to/dsh/lib/bin.js", "--profile", "acp"]`.
+On Windows, use the actual `dsh.cmd` path. If the default Node is too old, use
+`["/path/to/node", "/path/to/dsh/lib/bin.js", "--profile", "acp"]` instead.
+Apply configuration changes with `paseo reload --json`; no daemon restart is needed.
 
-```sh
-paseo reload --json
-paseo provider diagnostic deepseek --json
-```
+## Use and configure
 
-No daemon restart is needed, but reloading terminates old provider processes, so finish
-running tasks first.
+Select a DeepSeek model, type `/` for Skills, and choose an Agent beside the model/effort
+controls. Paseo may hide provider controls in narrow layouts. Choose an Agent before the
+first turn; existing sessions retain their selection.
 
-## Upgrading from the old `dsh` provider (1.3.0)
+Open **Settings → Plugins → DeepSeek Harness ACP** to configure:
 
-The provider ID changed from `dsh` to `deepseek`; the plugin ID is still `dsh-acp`, the
-CLI is still `dsh --profile acp`, and no legacy alias exists.
-
-Back up `~/.paseo/config.json`, copy the complete `agents.providers.dsh` object
-(including command/env) to `agents.providers.deepseek`, then remove the old entry;
-reconcile instead of overwriting if a `deepseek` entry already exists. Then:
-
-```sh
-paseo reload --json
-paseo plugin reload dsh-acp
-paseo provider diagnostic deepseek --json
-```
-
-Old agents keep provider/persistence `dsh` and **cannot be resumed**; the plugin does
-not rewrite old records or delete DSH session files. Create new agents after upgrading.
-To restore old agents, roll back the plugin source and configuration backup first.
-
-If Paseo ever ships a built-in `deepseek` provider, this plugin will fail to register
-because of the name conflict; switch to a more specific ID such as `deepseek-harness`
-and migrate again.
-
-## Update
-
-```sh
-paseo plugin update dsh-acp                                    # Git install
-git -C <repo> pull --ff-only && paseo plugin reload dsh-acp    # directory install
-```
-
-Update DSH separately with `npm install -g @deepseek-ai/dsh`, then run diagnostics
-again. Neither changes third-party model configuration.
-
-## Third-party DeepSeek models
-
-Supported. Model requests are sent by DSH; the gateway must provide the APIs, tool
-calls, and streaming responses that DSH needs — a web-only chat service is not enough.
-Model IDs, reasoning parameters, context limits, image support, and costs are up to the
-third party.
-
-1. Run `dsh --profile acp --help` once to initialize the ACP profile.
-2. Merge the [example](examples/third-party.cordis.patch.yml) into
-   `~/.dsh/profiles/acp/cordis.patch.yml` (same under `DSH_HOME`), replacing the
-   endpoint and model ID.
-3. Store the credential under `refs` in `~/.dsh/.credentials.yaml`:
-
-```yaml
-version: 1
-refs:
-  DSH_GATEWAY_API_KEY: REPLACE_WITH_YOUR_SECRET
-```
-
-Keep existing refs, do not overwrite the whole file or commit secrets, and prefer
-`chmod 600`. You can also pass an environment variable with the same name explicitly to
-the daemon or provider.
-
-Notes:
-
-- ACP and `web` are different profiles; a route saved in `dsh web` does not apply.
-- DSH's Cordis `config` override **replaces the entire entry**; keep the other routes
-  in `llm-pi-ai` and do not add duplicate entries with the same id.
-- Existing sessions may keep their previous model choice; select the new model
-  explicitly in Paseo.
-- Then run `paseo provider diagnostic deepseek --json` and send a minimal request to
-  verify authentication, tool calls, and connectivity; `Ready` does not prove inference.
-
-## Capabilities and limitations
-
-### Session resume and history
-
-DSH 0.2.2-alpha.2 only has `session/resume`, not `session/load` or history replay;
-Paseo 0.15.3 exposes `session.persistence` only for agents declaring `loadSession`. The
-plugin translates `session/load` into `session/resume`, restores the same session ID,
-and replays history from local v4 logs (all Zstd frames), failing explicitly instead of
-creating an empty session. The replay also restores the last context-window usage, so
-the context meter is populated after a restart instead of waiting for the next turn.
-DSH `todo_write` task lists are projected to Paseo's composer task list (the `N/M tasks`
-pill above the input), including after a resume, without a duplicate raw tool card in
-the message list.
-
-Logs live under `$DSH_HOME/sessions` (default `~/.dsh/sessions`); `session.v4.jsonl.zstd`
-and `.jsonl` are supported and read-only. Point the provider environment variable
-`DSH_ACP_SESSION_ROOT` at a custom storage root. Non-text attachments appear as type
-placeholders and `history: skip` replays nothing.
-
-### Interaction semantics
-
-| Area | Behavior |
-|---|---|
-| Configuration | Accepts only the `auto_accept` option; rejects non-empty `systemPrompt`, unknown options, `toolPolicy.preapproved`, and `persist=false`; MCP supports stdio/Streamable HTTP only. |
-| Cancel/concurrency | `prompt.steer` is not advertised; concurrent `auto` interrupts the previous turn, explicit `steer` is rejected, and cancellation ends the turn exactly once. |
-| Permissions | Single-use allow/deny only; fills DSH's missing tool context without inventing arguments; rejects persistent grants, input rewriting, rejection messages, and deny-and-interrupt. |
-| Models | Opaque IDs are preserved; invalid choices are not committed and do not corrupt the current configuration. |
-| Session list | Follows every `nextCursor` and deduplicates; repeated cursors or later page failures error out; `query`/`limit` apply after collection. |
-| Turn end | `max_tokens`, `max_turn_requests`, and `refusal` warn; API errors and process exits count as failures. |
-| History/attachments | Unfinished tools no longer stay running; failures without details are explained; tool results map to live `output`; non-text results use type placeholders. |
-
-`title` is local Paseo metadata only. The plugin does not advertise native steering,
-persistent permissions, structured output, fork/rewind, or desktop-only modes; ACP
-output is committed messages, not token-level streaming. Image support depends on DSH
-routing; the plugin does not upgrade capability declarations.
-
-### Permissions and Auto Accept
-
-DSH approvals are one-shot allow/reject; there is no "always allow". The plugin
-adds an `Auto Accept` toggle in the composer: when enabled it answers
-`session/request_permission` with `allow-once` and leaves an info item in the
-timeline. The sandbox still applies, so an out-of-workspace write is denied first
-and then escalated.
-
-The value is saved per DSH session under `$DSH_HOME/paseo-acp-options`
-(`~/.dsh` by default), or `DSH_ACP_SESSION_ROOT/paseo-options` when that override
-is set. Storage errors are reported explicitly. The toggle is available after
-a session opens, not in a draft before a session exists.
-
-The DSH sandbox mode is fixed at launch (default `workspace-write`):
+- Extra Agent / Skills directories: one absolute host path or `~/path` per line.
+- Claude / Copilot Skills discovery switches, both enabled by default.
+- Agent model alias JSON, for example:
 
 ```json
 {
-  "agents": {
-    "providers": {
-      "deepseek": { "env": { "DSH_PERMISSION_MODE": "danger-full-access" } }
-    }
+  "sonnet": {
+    "provider": "deepseek-official",
+    "model": "deepseek/deepseek-v4-pro"
   }
 }
 ```
 
-| Value | Sandbox | Approval |
-|---|---|---|
-| `read-only` | read-only | ask |
-| `workspace-write` | workspace writable | ask |
-| `danger-full-access` | unrestricted | never (no prompts) |
+Save explicitly. Changes apply to new/reopened sessions; manually Reload existing agents.
+Settings are host-scoped. Credentials and DSH profiles remain external; Auto Accept remains
+per-session. `DSH_ACP_AGENT_DIRS` paths precede page paths, `DSH_ACP_MODEL_ALIASES`
+overrides matching page aliases, and extra Skills paths append to profile `customSkillDirs`.
+Invalid environment/page mappings produce explicit errors.
 
-The mode is per process, so changing it requires a provider reload. Paseo has no
-per-session selector, and ACP does not expose DSH's `/permission`. See
-[ADR 0001](docs/adr/0001-permissions-and-options.md) for the design and migration
-plan.
+### Skills discovery
 
-### Other
+Earlier roots take precedence. Roots and files deduplicate by real path, including symlinks.
+`<project>` is the nearest Git root, or cwd when no Git root exists.
 
-The verified version lacks Standard/PTC/Minimal/Creator presets, native Plan approval
-cards, and similar desktop features; models, permissions, and session capabilities come
-from the DSH/Paseo handshake.
+| Order | Directories |
+|---|---|
+| 1 | `<project>/.dsh/skills`, `<project>/.agents/skills` |
+| 2 | DSH profile `customSkillDirs` and extra plugin directories |
+| 3 | `~/.dsh/skills`, `~/.agents/skills`, DSH bundled Skills |
+| 4 | `<project>/.claude/skills`, `<project>/.copilot/skills` |
+| 5 | `~/.claude/skills`, `~/.copilot/skills` |
 
-### Skills
+Supports `<name>/SKILL.md` and `<name>.md`. Native user roots honor `DSH_HOME` /
+`DSH_AGENTS_HOME`. Profile `includeDefaultRoots: false` also disables compatibility defaults,
+not explicitly configured paths. Parsing, loading, resource paths, and watching stay native
+to DSH; the menu shows only user-invocable Skills.
 
-DSH ACP includes native skill discovery and the `skill` tool; the plugin does not
-copy or inject skill instructions. Default roots are the project's `.dsh/skills`
-and `.agents/skills`, plus `~/.dsh/skills` and `~/.agents/skills`.
-The shared directory is **`.agents` (plural)**, not `.agent`. Paseo installs its
-orchestration skills there. Skills installed only under `~/.claude/skills` are
-not scanned by DSH. `DSH_AGENTS_HOME` and `DSH_HOME` override the user roots;
-DSH's `skill-filesystem.customSkillDirs` adds custom roots.
+**Discovery compatibility is not runtime compatibility:** foreign `allowed-tools`, model,
+context/fork, and hooks fields are not enforced or executed and must not be used as DSH permission boundaries.
 
-**After opening a DeepSeek session, type `/` in the composer to select discovered
-Skills**, including `/paseo`. You can also ask the model to use a skill, or send
-`/paseo ...` as ordinary text. Selected commands pass their name and arguments to
-DSH's own invocation parser; the plugin does not copy skill bodies into prompts.
+### Agent definitions
 
-The menu lists only user-invocable Skills and updates as discovery results change.
-Incomplete or failed discovery is reported explicitly. Drafts have no Skills menu
-before a session exists.
+Discovery order: project `.dsh/agents`, project `.agents/agents`, custom directories,
+`~/.dsh/agents`, `~/.agents/agents`, project/user `.claude/agents`, then project/user
+`.copilot/agents`. Set custom directories through settings or `DSH_ACP_AGENT_DIRS`.
 
-The plugin does not install additional DSH skill packages such as Office. The
-default ACP profile enables filesystem skills and their native loader; other
-skills depend on the packages enabled in that profile and local skill roots,
-not the DSH Desktop menu.
+Supports `<name>/AGENT.md`, `<name>.md`, and Copilot `.agent.md` files.
+`.github/agents` is not scanned. `AGENTS.md` / `CLAUDE.md` are instructions, not agent definitions.
+Roots and files deduplicate by `realpath`; symlinks keep their actual source's semantics.
+Distinct same-name files use priority order and produce a shadowing warning.
 
-## Development and testing
+```markdown
+---
+name: reviewer
+description: Review code without modifying files
+tools: [read, grep, glob]
+---
+Review correctness and explain actionable findings.
+```
+
+All sources share full YAML parsing and a common schema. Supported fields include persona,
+tool allow/deny, `provider` / `model` / `reasoningEffort`, invocation policy, and display metadata.
+Known Claude/Copilot tool names map to DSH equivalents. `tools: []` means no tools.
+Models must exist in the DSH catalog; aliases such as `sonnet` / `opus` require explicit mappings.
+
+Selecting an Agent applies its root persona, tools, model, and effort. Default restores the
+baseline; resume does not overwrite persisted model choices. `maxTokens` is child-only.
+The model can call `delegate_to_agent` to start real child sessions and receive completion
+notices. Children share cwd, process, and sandbox; there is no OS/worktree isolation.
+
+Unsupported executable fields such as hooks, permissions, MCP servers, plugins, background,
+memory, skills, and handoffs, unknown fields, and tools without equivalent mappings are retained
+with explicit diagnostics. Unavailable definitions show a reason in the picker and reject
+selection/delegation rather than weakening restrictions. Definitions are scanned on new/resumed
+sessions; live picker refresh is not guaranteed.
+
+## Sessions and permissions
+
+Resume keeps the DSH session ID and reads v4 JSONL / Zstd logs, context usage, and task lists
+under `$DSH_HOME/sessions` (default `~/.dsh/sessions`). Set `DSH_ACP_SESSION_ROOT` for custom
+storage. Resume failures are explicit, not replaced with empty sessions; non-text history
+attachments retain only type placeholders.
+
+Auto Accept approves individual DSH requests without disabling the sandbox and persists per
+session. Set `DSH_PERMISSION_MODE` in the provider launch environment to `read-only`,
+`workspace-write` (default), or `danger-full-access`; reload after changing it. Persistent
+permissions, native steering, fork/rewind, and non-Skills native commands are not supported.
+
+Configure third-party models in DSH's ACP profile using the
+[route example](examples/third-party.cordis.patch.yml). ACP and `web` profiles are separate.
+Preserve existing routes and credentials; never overwrite whole configurations or commit
+secrets. Prompts and tool results go to the model endpoint selected in DSH.
+
+## Update and migrate
+
+```sh
+paseo plugin update dsh-acp                     # Git install
+# Directory install: run in the repository
+git pull --ff-only
+npm ci
+paseo plugin reload dsh-acp
+```
+
+Reload stops this plugin's provider processes; finish running tasks first. Update the DSH CLI
+separately. When upgrading from provider `dsh`, migrate the complete provider configuration
+to `deepseek`, then run `paseo reload --json`. Old `dsh` agents cannot resume directly; DSH
+session files are not deleted. See [ADR 0001](docs/adr/0001-permissions-and-options.md) for permissions.
+
+## Develop
 
 ```sh
 npm ci
+npm run embed       # Regenerate after editing DSH overlay modules
 npm run typecheck
-npm test        # fixtures only, no model calls
+DSH_TEST_COMMAND=/absolute/path/to/dsh npm test
 ```
 
-Real DSH integration test (reads `~/.dsh` and requires `dsh` to write its profile; makes
-model requests for cancellation, a short reply and two temporary skill loads):
+Tests use fixtures / a loopback model. To exercise a real model:
 
 ```sh
 DSH_TEST_COMMAND=/absolute/path/to/dsh \
-DSH_TEST_MODEL='["your-route","your-model"]' \
-npm run test:real
+DSH_TEST_MODEL='["your-route","your-model"]' npm run test:real
 ```
 
-`test:real` fails on missing variables, a non-executable command, or malformed JSON
-instead of silently skipping; `--all` also runs the fixture suites. Deterministic
-branches are covered by fixtures.
-
-The repository ships a `dsh-acp-testing` skill: the real file lives in `.agents/skills/`
-(read by DSH and Copilot), and `.claude/skills/` is a symlink to it for Claude Code.
-
-License: MIT. Icon attribution and trademark notices are in [NOTICE](NOTICE).
-
-References: [official ACP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md),
-[official model configuration](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md),
-[Paseo provider plugins](https://paseo.sh/docs/plugins/providers.md).
+License: MIT. See [NOTICE](NOTICE) for icon attribution and trademarks.

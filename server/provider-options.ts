@@ -4,11 +4,11 @@ import { autoAcceptPresentation } from "../shared/auto-accept.ts";
 // The current upstream contract exposes these fields; published SDKs still omit them.
 type ProviderOptionControl =
   | {
-      type: "toggle"; key: string; label: string; description?: string;
+      type: "toggle"; key: string; label: string; description?: string; tooltip?: string;
       icon?: string; defaultValue?: boolean;
     }
   | {
-      type: "select"; key: string; label: string; description?: string;
+      type: "select"; key: string; label: string; description?: string; tooltip?: string;
       icon?: string; defaultValue?: string;
       choices: ReadonlyArray<{ value: string; label: string; description?: string }>;
     };
