@@ -45,7 +45,10 @@ export function compatibilityProviderClass(NativeProvider, home = homedir()) {
       if (this.compatibilityRoots && cwd !== undefined) {
         const projectRoot = await projectRootFor(cwd);
         if (this.claudeSkills) roots.push({ path: join(projectRoot, ".claude/skills"), source: "project-claude", rank: 700, projectRoot });
-        if (this.copilotSkills) roots.push({ path: join(projectRoot, ".copilot/skills"), source: "project-copilot", rank: 710, projectRoot });
+        if (this.copilotSkills) roots.push(
+          { path: join(projectRoot, ".copilot/skills"), source: "project-copilot", rank: 710, projectRoot },
+          { path: join(projectRoot, ".github/skills"), source: "project-github", rank: 720, projectRoot },
+        );
       }
       if (this.compatibilityRoots) {
         if (this.claudeSkills) roots.push({ path: join(home, ".claude/skills"), source: "user-claude", rank: 800 });

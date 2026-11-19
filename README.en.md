@@ -63,7 +63,7 @@ first turn; existing sessions retain their selection.
 Open **Settings → Plugins → DeepSeek Harness ACP** to configure:
 
 - Extra Agent / Skills directories: one absolute host path or `~/path` per line.
-- Claude / Copilot Skills discovery switches, both enabled by default.
+- Claude / Copilot Skills discovery switches, both enabled by default. The separate read-only Agent sources section lists directories scanned independently of these switches.
 - Agent model alias JSON, for example:
 
 ```json
@@ -91,7 +91,7 @@ Earlier roots take precedence. Roots and files deduplicate by real path, includi
 | 1 | `<project>/.dsh/skills`, `<project>/.agents/skills` |
 | 2 | DSH profile `customSkillDirs` and extra plugin directories |
 | 3 | `~/.dsh/skills`, `~/.agents/skills`, DSH bundled Skills |
-| 4 | `<project>/.claude/skills`, `<project>/.copilot/skills` |
+| 4 | `<project>/.claude/skills`, `<project>/.copilot/skills`, `<project>/.github/skills` |
 | 5 | `~/.claude/skills`, `~/.copilot/skills` |
 
 Supports `<name>/SKILL.md` and `<name>.md`. Native user roots honor `DSH_HOME` /
@@ -105,11 +105,11 @@ context/fork, and hooks fields are not enforced or executed and must not be used
 ### Agent definitions
 
 Discovery order: project `.dsh/agents`, project `.agents/agents`, custom directories,
-`~/.dsh/agents`, `~/.agents/agents`, project/user `.claude/agents`, then project/user
-`.copilot/agents`. Set custom directories through settings or `DSH_ACP_AGENT_DIRS`.
+`~/.dsh/agents`, `~/.agents/agents`, project/user `.claude/agents`, project `.copilot/agents`,
+project `.github/agents`, then user `.copilot/agents`. Set custom directories through settings or `DSH_ACP_AGENT_DIRS`.
 
 Supports `<name>/AGENT.md`, `<name>.md`, and Copilot `.agent.md` files.
-`.github/agents` is not scanned. `AGENTS.md` / `CLAUDE.md` are instructions, not agent definitions.
+`AGENTS.md` / `CLAUDE.md` are instructions, not agent definitions.
 Roots and files deduplicate by `realpath`; symlinks keep their actual source's semantics.
 Distinct same-name files use priority order and produce a shadowing warning.
 

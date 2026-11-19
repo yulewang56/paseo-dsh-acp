@@ -229,18 +229,21 @@ test("requires required identity fields and reports malformed files through disc
   }
 });
 
-test("discovers a symlinked Copilot user refuter and ignores .github roots", async () => {
+test("discovers Copilot agents from the Git root and symlinked user files", async () => {
   const f = await fixture();
   try {
     const target = await f.write("copilot-refuter.md", "---\nname: refuter\ndescription: Finds counterexamples\n---\nRefute claims.");
     const userRoot = join(f.root, ".copilot", "agents");
     await mkdir(userRoot, { recursive: true });
     await symlink(target, join(userRoot, "refuter.md"));
-    await f.write(".github/agents/ignored.agent.md", "---\nname: ignored\ndescription: No\n---\nNo.");
-    const result = await discoverAgentDefinitions({ cwd: f.project, env: {}, home: f.root, yaml });
-    assert.deepEqual(result.agents.map((agent) => agent.id), ["refuter"]);
+    await f.write(".github/agents/checker.agent.md", "---\ndescription: Checks changes\n---\nCheck changes.");
+    const cwd = join(f.project, "src");
+    await mkdir(cwd);
+    const result = await discoverAgentDefinitions({ cwd, env: {}, home: f.root, yaml });
+    assert.deepEqual(result.agents.map((agent) => agent.id), ["checker", "refuter"]);
     assert.equal(result.agents[0].source, "copilot");
-    assert.equal(result.agents[0].availableForRoot, true);
+    assert.equal(result.agents[1].source, "copilot");
+    assert.equal(result.agents[1].availableForRoot, true);
   } finally {
     await f.close();
   }

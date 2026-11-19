@@ -95,14 +95,14 @@ test("extends native roots while keeping profile options and cwd isolation", asy
 test("deduplicates linked native/compatibility roots and canonical skill files", async (t) => {
   const f = await fixture(t);
   if (!f) return;
-  const original = await f.write("project/.copilot/skills/original.md", skill("original"));
+  const original = await f.write("project/.github/skills/original/SKILL.md", skill("original"));
   await mkdir(join(f.project, ".agents"));
-  await symlink(join(f.project, ".copilot/skills"), join(f.project, ".agents/skills"), "dir");
+  await symlink(join(f.project, ".github/skills"), join(f.project, ".agents/skills"), "dir");
   await mkdir(join(f.project, ".claude/skills"), { recursive: true });
   await symlink(original, join(f.project, ".claude/skills/alias.md"));
   const roots = await f.provider.roots(f.project);
   assert.ok(roots.some((root) => root.source === "project-agents"));
-  assert.ok(!roots.some((root) => root.source === "project-copilot"));
+  assert.ok(!roots.some((root) => root.source === "project-github"));
   const list = candidates(await f.provider.list({ cwd: f.project }));
   assert.equal(list.length, 1);
   assert.equal(list[0].source, "project-agents");
@@ -115,8 +115,9 @@ test("retains distinct same-name candidates with native precedence", async (t) =
   await f.write("project/.agents/skills/reviewer.md", skill("reviewer", "Native."));
   await f.write("project/.claude/skills/reviewer.md", skill("reviewer", "Claude."));
   await f.write("project/.copilot/skills/reviewer.md", skill("reviewer", "Copilot."));
+  await f.write("project/.github/skills/reviewer/SKILL.md", skill("reviewer", "GitHub."));
   const list = candidates(await f.provider.list({ cwd: f.project }));
-  assert.deepEqual(list.map((candidate) => candidate.rank), [200, 700, 710]);
+  assert.deepEqual(list.map((candidate) => candidate.rank), [200, 700, 710, 720]);
   assert.equal((await f.provider.get(list[0], {})).content, "Native.");
 });
 

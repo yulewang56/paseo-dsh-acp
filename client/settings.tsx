@@ -83,12 +83,12 @@ export function DiscoverySettings({ theme, layout }: PluginSurfaceProps) {
       <Text style={muted}>{hint}</Text>
     </View>
   );
-  const source = (key: "claudeSkills" | "copilotSkills", label: string, path: string, last = false) => (
+  const source = (key: "claudeSkills" | "copilotSkills", label: string, directories: string, last = false) => (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 16, padding: inset,
       borderBottomWidth: last ? 0 : 1, borderBottomColor: colors.border }}>
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={{ color: colors.foreground, fontSize: 14, fontWeight: "500" }}>{label}</Text>
-        <Text style={muted}>项目与用户目录 · {path}</Text>
+        <Text style={muted}>{directories}</Text>
       </View>
       <Switch accessibilityLabel={label} value={form?.[key] ?? false} disabled={settings.saving}
         {...(Platform.OS === "web" ? { activeThumbColor: brand.onBlue } : {})}
@@ -122,11 +122,22 @@ export function DiscoverySettings({ theme, layout }: PluginSurfaceProps) {
         <View style={{ gap: 12 }}>
           <View style={{ gap: 5 }}>
             <Text accessibilityRole="header" style={title}>Skills 来源</Text>
-            <Text style={muted}>自动发现兼容目录，保留 DSH 原生发现规则。</Text>
+            <Text style={muted}>每个开关控制下方所列目录的自动发现，不影响 DSH 原生目录或额外配置的目录。</Text>
           </View>
           <View style={card}>
-            {source("claudeSkills", "Claude", ".claude/skills")}
-            {source("copilotSkills", "GitHub Copilot", ".copilot/skills", true)}
+            {source("claudeSkills", "Claude", "项目：.claude/skills\n用户：~/.claude/skills")}
+            {source("copilotSkills", "GitHub Copilot", "项目：.copilot/skills\n项目：.github/skills\n用户：~/.copilot/skills", true)}
+          </View>
+        </View>
+
+        <View style={{ gap: 12 }}>
+          <View style={{ gap: 5 }}>
+            <Text accessibilityRole="header" style={title}>Agent 来源</Text>
+            <Text style={muted}>以下目录自动扫描，不受 Skills 来源开关影响。</Text>
+          </View>
+          <View style={{ ...card, padding: inset, gap: 8 }}>
+            <Text selectable style={muted}>项目：.dsh/agents、.agents/agents、.claude/agents、.copilot/agents、.github/agents</Text>
+            <Text selectable style={muted}>用户（默认）：~/.dsh/agents、~/.agents/agents、~/.claude/agents、~/.copilot/agents</Text>
           </View>
         </View>
 

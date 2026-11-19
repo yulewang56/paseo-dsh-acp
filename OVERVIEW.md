@@ -42,8 +42,8 @@ pages, and output limits produce a visible warning instead of implying task succ
 Auto Accept approves individual DSH requests without disabling the sandbox.
 The choice is saved locally per DSH session. A temporary ACP wrapper exposes DSH's
 user-invocable Skills in Paseo's slash menu after a session opens, including Paseo
-skills in `~/.agents/skills`. Project and user `.claude/skills` and `.copilot/skills`
-are included after existing native roots, with real-path deduplication. Parsing,
+skills in `~/.agents/skills`. Project and user `.claude/skills` and `.copilot/skills`,
+plus project `.github/skills`, are included after native roots, with real-path deduplication. Parsing,
 resource loading, and change watching use the native filesystem provider and
 scoped registry, preserving profile settings. Foreign hooks, model overrides,
 and tool restrictions in skill frontmatter are not enforced. Additional DSH skill
@@ -51,7 +51,7 @@ packages are not installed.
 
 The plugin also discovers named agent definitions from project and user
 `.dsh/agents`, `.agents/agents`, `.claude/agents`, and `.copilot/agents`
-directories (including symlinked files). Frontmatter is parsed as full YAML; all
+directories and the project's `.github/agents` directory (including symlinked files). Frontmatter is parsed as full YAML; all
 sources share one schema and tool/model normalization, with explicit capability
 diagnostics for unsupported hooks, permissions, MCP servers, background/memory,
 tool filters, and unresolved models. Unknown fields are retained and shown as
@@ -67,4 +67,4 @@ remain visible with a reason but cannot be selected or delegated.
 A `delegate_to_agent` tool starts a real child session with the definition's
 persona, tool restrictions, and child-only model options such as `maxTokens`.
 Children share the parent process, cwd, and sandbox; this is not OS-level
-isolation. `.github/agents` and uncontrolled execution fields are not supported.
+isolation. Uncontrolled execution fields are not supported.

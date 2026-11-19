@@ -43,6 +43,7 @@ test("real DSH loads Claude/Copilot slash bodies through the native registry wit
     for (const [relative, name, marker] of [
       [".claude/skills/compat-claude/SKILL.md", "compat-claude", "CLAUDE_BODY_NATIVE_OK"],
       [".copilot/skills/compat-copilot.md", "compat-copilot", "COPILOT_BODY_NATIVE_OK"],
+      [".github/skills/ecs-flighting-updates/SKILL.md", "ecs-flighting-updates", "GITHUB_BODY_NATIVE_OK"],
     ]) {
       const path = join(project, relative);
       await mkdir(join(path, ".."), { recursive: true });
@@ -105,11 +106,13 @@ test("real DSH loads Claude/Copilot slash bodies through the native registry wit
     assert.ok(commands?.type === "session.commands");
     assert.ok(commands.commands.some((entry) => entry.name === "compat-claude"));
     assert.ok(commands.commands.some((entry) => entry.name === "compat-copilot"));
+    assert.ok(commands.commands.some((entry) => entry.name === "ecs-flighting-updates"));
     assert.ok(commands.commands.some((entry) => entry.name === "plugin-extra"));
     assert.ok(commands.commands.some((entry) => entry.name === "profile-extra"));
     const controls = events.findLast((event) => event.type === "session.config");
     assert.ok(controls?.type === "session.config" && controls.config.providerOptions?.agent === selected.presetId);
-    for (const [name, marker] of [["compat-claude", "CLAUDE_BODY_NATIVE_OK"], ["compat-copilot", "COPILOT_BODY_NATIVE_OK"]]) {
+    for (const [name, marker] of [["compat-claude", "CLAUDE_BODY_NATIVE_OK"], ["compat-copilot", "COPILOT_BODY_NATIVE_OK"],
+      ["ecs-flighting-updates", "GITHUB_BODY_NATIVE_OK"]]) {
       const before = requests.length;
       await sendUntil({ type: "session.prompt", sessionId: "compat", prompt: {
         clientMessageId: name, delivery: "auto", input: { type: "command", name, arguments: "Reply SKILLS_OK. Do not use tools." },
@@ -123,12 +126,13 @@ test("real DSH loads Claude/Copilot slash bodies through the native registry wit
     assert.ok(persisted?.type === "session.opened" && persisted.persistence);
     await sendUntil({ type: "session.close", requestId: "close", sessionId: "compat" },
       (event) => event.type === "request.completed");
-    values = { ...values, claudeSkills: false, copilotSkills: false };
+    values = { ...values, copilotSkills: false };
     await sendUntil({ type: "session.open", requestId: "resume", sessionId: "resumed", history: "skip", config, persistence: persisted.persistence },
       (event) => event.type === "session.ready");
     const resumed = events.findLast((event) => event.type === "session.commands" && event.sessionId === "resumed");
     assert.ok(resumed?.type === "session.commands");
-    assert.ok(!resumed.commands.some((entry) => entry.name === "compat-copilot" || entry.name === "compat-claude"));
+    assert.ok(!resumed.commands.some((entry) => entry.name === "compat-copilot" || entry.name === "ecs-flighting-updates"));
+    assert.ok(resumed.commands.some((entry) => entry.name === "compat-claude"));
     assert.ok(resumed.commands.some((entry) => entry.name === "plugin-extra"));
     assert.ok(resumed.commands.some((entry) => entry.name === "profile-extra"));
     off();

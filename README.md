@@ -62,7 +62,7 @@ Paseo 窄布局可能隐藏 provider 控件。Agent 必须在首轮之前选择�
 在 **Settings → Plugins → DeepSeek Harness ACP** 打开设置，可配置：
 
 - 额外 Agent / Skills 目录：每行一个绝对主机路径或 `~/路径`。
-- Claude / Copilot Skills 发现开关，默认开启。
+- Claude / Copilot Skills 发现开关，默认开启。「Agent 来源」单独列出自动扫描的目录，不受这些开关影响。
 - Agent 模型别名 JSON，例如：
 
 ```json
@@ -90,7 +90,7 @@ Paseo 窄布局可能隐藏 provider 控件。Agent 必须在首轮之前选择�
 | 1 | `<project>/.dsh/skills`、`<project>/.agents/skills` |
 | 2 | DSH profile 的 `customSkillDirs` 与插件额外目录 |
 | 3 | `~/.dsh/skills`、`~/.agents/skills`、DSH bundled Skills |
-| 4 | `<project>/.claude/skills`、`<project>/.copilot/skills` |
+| 4 | `<project>/.claude/skills`、`<project>/.copilot/skills`、`<project>/.github/skills` |
 | 5 | `~/.claude/skills`、`~/.copilot/skills` |
 
 支持 `<name>/SKILL.md` 或 `<name>.md`。原生用户目录遵循 `DSH_HOME` / `DSH_AGENTS_HOME`。
@@ -104,10 +104,10 @@ hooks 等字段不会因此被执行或强制，不能作为 DSH 权限边界。
 
 发现顺序：项目 `.dsh/agents`、项目 `.agents/agents`、自定义目录、
 `~/.dsh/agents`、`~/.agents/agents`、项目/用户 `.claude/agents`、
-项目/用户 `.copilot/agents`。自定义目录可通过设置页或 `DSH_ACP_AGENT_DIRS` 指定。
+项目 `.copilot/agents`、项目 `.github/agents`、用户 `.copilot/agents`。自定义目录可通过设置页或 `DSH_ACP_AGENT_DIRS` 指定。
 
 支持 `<name>/AGENT.md`、`<name>.md`，以及 Copilot 的 `.agent.md`。
-`.github/agents` 不扫描；`AGENTS.md` / `CLAUDE.md` 是指令文件，不是 Agent 定义。
+`AGENTS.md` / `CLAUDE.md` 是指令文件，不是 Agent 定义。
 目录与文件按 `realpath` 去重，符号链接使用真实来源的适配语义；不同文件同名按优先级覆盖并警告。
 
 ```markdown

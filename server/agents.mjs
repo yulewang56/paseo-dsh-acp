@@ -618,6 +618,7 @@ export async function discoverAgentDefinitions(options) {
     { path: join(projectRoot, ".claude", "agents"), source: "project-claude", rank: 700, kind: "claude", projectRoot },
     { path: join(home, ".claude", "agents"), source: "user-claude", rank: 800, kind: "claude", projectRoot },
     { path: join(projectRoot, ".copilot", "agents"), source: "project-copilot", rank: 900, kind: "copilot", projectRoot },
+    { path: join(projectRoot, ".github", "agents"), source: "project-github", rank: 950, kind: "copilot", projectRoot },
     { path: join(home, ".copilot", "agents"), source: "user-copilot", rank: 1000, kind: "copilot", projectRoot },
   ];
   const warnings = [];
